@@ -1,0 +1,62 @@
+.page { display: grid; gap: 16px; min-width: 0; }
+.heading { justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 0; }
+.heading p { margin-top: 4px; }
+.setupGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.panel { display: grid; align-content: start; gap: 14px; }
+.panelHeading, .jobHeading, .submit { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.panelHeading, .submit { justify-content: space-between; }
+.panelHeading h3 { font-size: 15px; }
+.muted { color: var(--brand-text-secondary); font-size: 13px; }
+.page button:disabled { cursor: default; opacity: .55; }
+
+.devices { list-style: none; display: grid; gap: 8px; }
+.device {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+  padding: 10px 12px; background: var(--brand-bg); border-radius: var(--radius-sm);
+}
+.device strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
+.devices .muted { margin-top: 3px; }
+.badge {
+  flex: none; border-radius: 6px; padding: 3px 8px; background: var(--brand-bg);
+  color: var(--brand-text-secondary); font-size: 12px; white-space: nowrap;
+}
+.good { background: var(--brand-green-light); color: #166534; }
+.bad { background: var(--brand-red-light); color: #9b2620; }
+.active { background: var(--brand-blue-light); color: #064c94; }
+.pairing { display: grid; gap: 6px; padding: 12px; background: var(--brand-bg); border-radius: var(--radius-sm); }
+.copyField { display: flex; align-items: end; gap: 8px; }
+.copyField label { flex: 1; }
+.copyField button { min-height: 35px; }
+.pairing .code { font-family: ui-monospace, monospace; font-size: 16px; font-weight: 600; letter-spacing: .12em; }
+
+.form { display: grid; gap: 12px; }
+.formRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.copyField label, .form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; font-weight: 500; }
+.copyField input, .form input, .form select {
+  width: 100%; min-width: 0; min-height: 35px; padding: 6px 9px; font-size: 13px;
+  border: 1px solid var(--brand-border-strong); border-radius: var(--radius-sm);
+  color: var(--brand-text); background: var(--brand-surface);
+}
+.submit { gap: 8px; }
+.submit button { margin-left: auto; }
+.error { padding: 8px 10px; border-radius: var(--radius-sm); color: #9b2620; background: var(--brand-red-light); font-size: 13px; }
+
+.jobs { display: grid; gap: 12px; }
+.job { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--brand-border); border-radius: var(--radius-sm); }
+.jobHeading > div { flex: 1; min-width: 160px; }
+.jobHeading h4 { font-size: 14px; overflow-wrap: anywhere; }
+.jobHeading .muted { margin-top: 4px; }
+.jobContext { display: grid; gap: 5px; font-size: 13px; }
+.jobContext div { display: flex; align-items: baseline; gap: 8px; }
+.jobContext dt { flex: none; color: var(--brand-text-secondary); }
+.jobContext dd { overflow-wrap: anywhere; }
+.progress { display: flex; align-items: center; gap: 10px; color: var(--brand-text-secondary); font-size: 12px; white-space: nowrap; }
+.progress progress { flex: 1; height: 7px; min-width: 0; border: 0; border-radius: 8px; accent-color: var(--brand-accent); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(77px, 1fr)); gap: 6px; }
+.stats div { padding: 7px 10px; border-radius: var(--radius-sm); background: var(--brand-bg); }
+.stats dt { color: var(--brand-text-secondary); font-size: 12px; white-space: nowrap; }
+.stats dd { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 980px) {
+  .setupGrid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机商品采集</string>
+    <string name="accessibility_service_name">手机商品采集服务</string>
+    <string name="accessibility_service_description">执行用户开启的商品采集任务，读取抖音商城商品规格和报价，切换规格并保存对应图片。</string>
+</resources>

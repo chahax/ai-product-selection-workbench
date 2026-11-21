@@ -1,0 +1,98 @@
+.page { display: grid; gap: 16px; min-width: 0; }
+.pageHeader { margin-bottom: 0; }
+.pageHeader p { font-size: 13px; color: var(--brand-text-secondary); margin-top: 4px; }
+.page h3 { font-size: 15px; }
+.page button:disabled { opacity: .55; cursor: default; }
+
+.form, .taskBody { padding: 18px 20px; display: grid; gap: 14px; }
+.fieldGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1.5fr); gap: 12px; }
+.form label, .priceRange legend { font-size: 13px; font-weight: 500; }
+.form label { min-width: 0; display: block; }
+.sourceField { grid-column: 1 / -1; }
+.form input, .taskSelect, .costEditor input {
+  padding: 8px 10px;
+  border: 1px solid var(--brand-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--brand-surface);
+  color: var(--brand-text);
+  font: inherit;
+  font-size: 13px;
+}
+.form input { display: block; width: 100%; margin-top: 6px; }
+.form input:focus, .taskSelect:focus { outline: 2px solid var(--brand-accent-ring); outline-offset: 1px; }
+.formBottom { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.formBottom > button { min-height: 37px; flex: none; margin-left: auto; }
+.priceRange { border: 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.priceRange input { width: 95px; }
+.priceRange span { padding-top: 6px; color: var(--brand-text-secondary); }
+.countInput { max-width: 110px; }
+.taskSelect { max-width: min(55vw, 300px); }
+.taskTop, .taskActions, .taskIdentity { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.taskTop { justify-content: space-between; gap: 12px; }
+.taskIdentity strong { font-size: 16px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stats > div { padding: 9px 12px; background: var(--brand-bg); border-radius: var(--radius-sm); }
+.stats dt, .progress, .muted { font-size: 12px; color: var(--brand-text-secondary); }
+.stats dd { font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: -0.03em; }
+.stats dd small { font-size: 12px; font-weight: 400; color: var(--brand-text-secondary); }
+.progress { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.progress progress { flex: 1; appearance: none; height: 6px; border: 0; border-radius: 10px; background: var(--brand-gray-5); }
+.progress progress::-webkit-progress-bar { border-radius: 10px; background: var(--brand-gray-5); }
+.progress progress::-webkit-progress-value { border-radius: 10px; background: var(--brand-accent); }
+.progress progress::-moz-progress-bar { border-radius: 10px; background: var(--brand-accent); }
+.error, .notice { padding: 8px 10px; border-radius: var(--radius-sm); font-size: 13px; }
+.error { background: var(--brand-red-light); color: #9b2620; }
+.notice { background: var(--brand-blue-light); color: #064c94; }
+.resultHeader { gap: 10px; flex-wrap: wrap; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.filters button { padding: 4px 9px; color: var(--brand-text-secondary); font-size: 12px; border-radius: 5px; }
+.filters button[aria-pressed='true'] { background: var(--brand-accent-light); color: var(--brand-text); font-weight: 600; }
+.filters button:hover { background: var(--brand-bg); }
+.filters button:focus-visible, .tableScroll:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: -2px; }
+.tableScroll { overflow-x: auto; }
+.table { border-collapse: collapse; width: 100%; min-width: 780px; font-size: 13px; }
+.table th, .table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--brand-border); vertical-align: top; }
+.table th { font-size: 12px; font-weight: 500; color: var(--brand-text-secondary); background: var(--brand-bg); white-space: nowrap; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr:hover td { background: #fafafa; }
+.table td:first-child, .table th:first-child { padding-left: 20px; }
+.table small, .table time { display: block; color: var(--brand-text-secondary); font-size: 12px; margin-top: 3px; }
+.rankCell, .priceCell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rank { font-size: 16px; font-weight: 600; }
+.productCell { min-width: 195px; width: 27%; }
+.productName { font-weight: 600; }
+.productName:hover { color: var(--brand-blue); }
+.sources { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 4px; font-size: 12px; }
+.sources time { margin: 0; }
+.sources a, .quoteLink { color: #0759b1; }
+.sources a:hover, .quoteLink:hover { text-decoration: underline; }
+.evidenceCell { min-width: 135px; max-width: 225px; }
+.labelList { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.skuCell { min-width: 142px; max-width: 214px; }
+.quoteLink { display: inline-block; margin-top: 4px; font-size: 12px; }
+.stateCell { min-width: 138px; max-width: 240px; }
+.statusBadge, .selectedBadge { display: inline-block; padding: 2px 7px; border-radius: 5px; font-size: 11px; white-space: nowrap; }
+.statusBadge { background: var(--brand-bg); color: var(--brand-text-secondary); }
+.selectedBadge { background: var(--brand-blue-light); color: #064c94; }
+.details { margin-top: 5px; font-size: 12px; overflow-wrap: anywhere; }
+.details summary { cursor: pointer; color: var(--brand-text-secondary); }
+.details p { margin-top: 4px; }
+.costDetails { margin-top: 8px; }
+.costEditor { margin-top: 6px; }
+.costFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.costFields > label { min-width: 0; }
+.costEditor input { display: block; width: 100%; min-width: 0; margin-top: 3px; padding: 5px 7px; }
+.costEditor button { margin-top: 7px; }
+.profit { font-variant-numeric: tabular-nums; margin-top: 5px; }
+.profit > strong, .profit > span { font-size: 12px; }
+.empty { text-align: center; padding: 30px 16px; color: var(--brand-text-secondary); font-size: 13px; }
+
+@media (max-width: 940px) {
+  .fieldGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .fieldGrid, .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .form, .taskBody { padding: 14px 16px; }
+  .formBottom > button { margin-left: 0; }
+}

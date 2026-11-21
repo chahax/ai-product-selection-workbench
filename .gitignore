@@ -1,0 +1,32 @@
+# Local dependencies and generated outputs
+node_modules/
+dist/
+build/
+__pycache__/
+*.py[cod]
+*.tsbuildinfo
+*.log
+.venv/
+venv/
+
+# Local records, databases, authentication and signing material
+data/
+.env
+.env.*
+!.env.example
+*.local
+.signing/
+*.keystore
+*.jks
+*.pem
+*.key
+*.sqlite
+*.sqlite-*
+*.db
+/采集结果/
+测试记录/
+
+# Reference projects are maintained separately
+/参考/
+.DS_Store
+.idea/
