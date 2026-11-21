@@ -23,7 +23,7 @@ data/
 *.sqlite
 *.sqlite-*
 *.db
-/采集结果/
+/手机商品采集/采集结果/
 测试记录/
 
 # Reference projects are maintained separately

@@ -45,6 +45,7 @@ public final class DouyinAdapter {
             "加入购物袋", "加入购物车", "立即购买", "领券购买", "优惠购买", "确认购买", "确定", "确认"));
     private static final Set<String> HOT = new HashSet<>(Arrays.asList("热销", "爆款", "热卖"));
     static final String SOLD_OUT = "商品已抢光";
+    static final String OUT_OF_STOCK = "商品缺货，仅支持到货通知";
 
     public static final class Snapshot {
         public boolean popup;
@@ -56,6 +57,7 @@ public final class DouyinAdapter {
         public Rect headerImage;
         public Rect smallModeControl;
         public Rect openSpecs;
+        public Rect couponSpecEntry;
         public Rect closeGallery;
         public String intervention = "";
         public int declaredCount;
@@ -403,22 +405,31 @@ public final class DouyinAdapter {
                 && !checkoutFooter && pageCounts.size() == 1 && !ambiguousCountEntry) {
             result.openSpecs = countEntry;
         }
-        if (result.openSpecs == null && !result.popup && !result.gallery && !result.title.isEmpty()
+        if (!result.popup && !result.gallery && !result.title.isEmpty()
                 && "com.ss.android.ugc.aweme".contentEquals(root.getPackageName())
                 && !checkoutFooter) {
-            result.openSpecs = couponSpecEntry(labels, width, height);
+            result.couponSpecEntry = couponSpecEntry(labels, width, height);
+            if (result.openSpecs == null) result.openSpecs = result.couponSpecEntry;
         }
         if (result.intervention.isEmpty() && result.openSpecs == null && !result.popup && !result.gallery) {
+            boolean stockNotice = false, alternatives = false;
             for (Label label : labels) {
                 String text = compact(label.text);
-                if (label.box.top >= height * .90f
-                        && (text.equals(SOLD_OUT) || text.equals("已抢光") || text.equals("商品已售罄"))) {
+                if (label.box.top < height * .90f) continue;
+                if (text.equals(SOLD_OUT) || text.equals("已抢光") || text.equals("商品已售罄")) {
                     result.intervention = SOLD_OUT;
                     break;
                 }
+                stockNotice |= label.enabled && label.box.right <= width * .50f && text.equals("到货通知");
+                alternatives |= label.enabled && label.box.left >= width * .50f && text.equals("找同款商品");
             }
+            if (result.intervention.isEmpty() && stockNotice && alternatives) result.intervention = OUT_OF_STOCK;
         }
         return result;
+    }
+
+    static boolean isUnavailable(String reason) {
+        return SOLD_OUT.equals(reason) || OUT_OF_STOCK.equals(reason);
     }
 
     private static void collect(AccessibilityNodeInfo node, Rect clickableParent, List<Label> labels,

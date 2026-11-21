@@ -74,6 +74,7 @@ public final class CollectorService extends AccessibilityService {
     private int blockedSamples;
     private int index;
     private int attempts;
+    private boolean couponEntryTried;
     private int pageScrolls;
     private volatile boolean running;
     private boolean paused;
@@ -699,8 +700,8 @@ public final class CollectorService extends AccessibilityService {
             if (!decision.intervention.isEmpty()) {
                 if ((decision.intervention.contains("标题与名单不一致") || decision.intervention.contains("完整标题与本件不一致"))
                         && SystemClock.uptimeMillis() - appStageStarted < 6000) { schedule(800); return; }
-                if (DouyinAdapter.SOLD_OUT.equals(decision.intervention)) {
-                    skipBatchItem(DouyinAdapter.SOLD_OUT);
+                if (DouyinAdapter.isUnavailable(decision.intervention)) {
+                    skipBatchItem(decision.intervention);
                 } else if (decision.intervention.contains("网络异常") || decision.intervention.contains("商品已下架") || decision.intervention.contains("商品不存在") || decision.intervention.contains("商品已失效")
                         || decision.intervention.contains("标题与名单不一致") || decision.intervention.contains("完整标题与本件不一致")) {
                     finishBatchItem("failed", decision.intervention);
@@ -1326,7 +1327,7 @@ public final class CollectorService extends AccessibilityService {
         DouyinAdapter.Snapshot screen = DouyinAdapter.read(root);
         root.recycle();
         if (!screen.intervention.isEmpty()) {
-            if (batchMode && DouyinAdapter.SOLD_OUT.equals(screen.intervention)) skipBatchItem(DouyinAdapter.SOLD_OUT);
+            if (batchMode && DouyinAdapter.isUnavailable(screen.intervention)) skipBatchItem(screen.intervention);
             else pause(screen.intervention);
             return;
         }
@@ -1411,6 +1412,7 @@ public final class CollectorService extends AccessibilityService {
             return;
         }
         if (screen.openSpecs != null) {
+            couponEntryTried = screen.openSpecs.equals(screen.couponSpecEntry);
             click(screen.openSpecs);
             setStage("list", "正在打开商品规格");
             return;
@@ -1434,6 +1436,15 @@ public final class CollectorService extends AccessibilityService {
         }
         if (!screen.popup || screen.groups.isEmpty()) {
             if (elapsed() > 8000) {
+                String expected = record.optString("identity_title");
+                if (!couponEntryTried && screen.couponSpecEntry != null && !expected.isEmpty()
+                        && identityTitle(DouyinAdapter.cleanProductTitle(screen.title, record.optString("source_title")))
+                                .equals(identityTitle(expected))) {
+                    couponEntryTried = true;
+                    click(screen.couponSpecEntry);
+                    setStage("list", "正在通过领券购买打开商品规格");
+                    return;
+                }
                 pause("请将商品规格弹窗保持打开后继续");
             } else {
                 schedule(600);

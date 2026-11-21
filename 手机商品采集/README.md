@@ -4,6 +4,8 @@
 
 这是独立应用，现有“百亿补贴采集”及其记录保持在原应用中。
 
+电脑配合真机执行的采集、素材和结果合并工具位于[抖音脚本](抖音脚本/README.md)。
+
 ## 当前范围
 
 - 来源使用官方考古加 App `com.fz.kaogujia`，商品采集支持抖音商城 `com.ss.android.ugc.livelite` 和抖音 `com.ss.android.ugc.aweme`，Android 11 及以上。
