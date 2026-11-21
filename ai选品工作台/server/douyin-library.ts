@@ -1,7 +1,7 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { DuplicateGroup } from '../src/types';
 import type { DouyinRecord } from '../src/types/douyin';
-import { display } from '../src/utils/douyinProduct';
+import { display, observedDouyinPrice } from '../src/utils/douyinProduct';
 import { minimumDouyinCardSales } from '../src/utils/douyinSelection';
 
 export class RequestError extends Error {
@@ -18,21 +18,6 @@ type ProductRow = { id: string; revision: number; payload: string; price_fen: nu
 
 function shopName(record: DouyinRecord) {
   return display(record.douyin_shop_name, record.kaogujia_shop_name, record.source_detail?.shop_name, record.shop_name).trim();
-}
-
-function observedPrice(record: DouyinRecord) {
-  for (const key of ['price_after_coupon_fen', 'price_before_coupon_fen'] as const) {
-    let fen = Infinity;
-    let maxFen = -Infinity;
-    for (const sku of record.skus) {
-      const amount = sku[key];
-      if (sku.available === false || typeof amount !== 'number' || !Number.isSafeInteger(amount) || amount < 0) continue;
-      fen = Math.min(fen, amount);
-      maxFen = Math.max(maxFen, amount);
-    }
-    if (Number.isFinite(fen)) return { fen, maxFen, label: key === 'price_after_coupon_fen' ? '券后价' : '券前价' };
-  }
-  return { fen: null, maxFen: null, label: undefined };
 }
 
 function observedSales(record: DouyinRecord) {
@@ -109,7 +94,7 @@ export function initializeDouyinLibrary(connection: DatabaseSync) {
   `);
   const options = { deterministic: true };
   connection.function('library_shop', options, payload => shopName(recordFrom(payload)));
-  connection.function('library_price_fen', options, payload => observedPrice(recordFrom(payload)).fen);
+  connection.function('library_price_fen', options, payload => observedDouyinPrice(recordFrom(payload)).fen);
   connection.function('library_sales', options, payload => observedSales(recordFrom(payload)));
 }
 
@@ -179,7 +164,7 @@ export function douyinProductMetadata(connection: DatabaseSync, record: DouyinRe
   const currentPrice = calculatedPriceFen === undefined
     ? connection.prepare('SELECT price_fen FROM douyin_library_prices WHERE record_id = ?').get(record.record_id)?.price_fen
     : calculatedPriceFen;
-  const observed = observedPrice(record);
+  const observed = observedDouyinPrice(record);
   const priceFen = typeof currentPrice === 'number' ? currentPrice : observed.fen;
   const maxPriceFen = typeof currentPrice === 'number' ? currentPrice : observed.maxFen;
   return {
@@ -255,7 +240,7 @@ export function updateDouyinProducts(connection: DatabaseSync, payload: unknown)
       const row = lookup.get(id);
       if (!row) { skipped++; continue; }
       if (markUp) {
-        const observed = observedPrice(recordFrom(row.payload)).fen;
+        const observed = observedDouyinPrice(recordFrom(row.payload)).fen;
         if (row.price_fen !== null || observed === null) { skipped++; continue; }
         const nextPrice = Math.round(observed * multiplier + fixed * 100);
         if (!Number.isSafeInteger(nextPrice) || nextPrice < 0) {
@@ -275,17 +260,26 @@ export function updateDouyinProducts(connection: DatabaseSync, payload: unknown)
 
 export function deleteDouyinProducts(connection: DatabaseSync, payload: unknown) {
   const ids = idsFrom(payload);
+  return transaction(connection, () => removeDouyinRecords(connection, ids));
+}
+
+export function deleteInvalidDouyinProducts(connection: DatabaseSync) {
+  return transaction(connection, () => {
+    const records = connection.prepare("SELECT id FROM douyin_records WHERE json_extract(payload, '$.product_state') = 'invalid'").all();
+    return removeDouyinRecords(connection, records.map(record => String(record.id)));
+  });
+}
+
+function removeDouyinRecords(connection: DatabaseSync, ids: string[]) {
   const removeRecord = connection.prepare('DELETE FROM douyin_records WHERE id = ?');
   const related = ['douyin_images', 'douyin_web_images', 'douyin_selection_skus']
     .map(table => connection.prepare(`DELETE FROM ${table} WHERE record_id = ?`));
-  return transaction(connection, () => {
-    let deletedCount = 0;
-    for (const id of ids) {
-      deletedCount += Number(removeRecord.run(id).changes);
-      for (const remove of related) remove.run(id);
-    }
-    return { ok: true, deleted_count: deletedCount };
-  });
+  let deletedCount = 0;
+  for (const id of ids) {
+    deletedCount += Number(removeRecord.run(id).changes);
+    for (const remove of related) remove.run(id);
+  }
+  return { ok: true, deleted_count: deletedCount };
 }
 
 export function exportDouyinProducts(connection: DatabaseSync, payload: unknown) {

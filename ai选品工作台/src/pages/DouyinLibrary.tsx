@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import type { DouyinRecord, DouyinSku, WebImageFetchResult } from '../types/douyin';
 import styles from '../styles/modules/DouyinLibrary.module.css';
-import { eligibleDouyinSkus } from '../utils/douyinSelection';
-import { display, title, status, price, productLink } from '../utils/douyinProduct';
+import { douyinSelectionLabel, eligibleDouyinSkus } from '../utils/douyinSelection';
+import { display, title, status, price, productLink, skuQuotes } from '../utils/douyinProduct';
 
 const API = '/api/workbench/douyin';
 const salesFields = ['商品销量', '直播销量', '视频销量', '商品卡销量'];
@@ -12,8 +12,7 @@ type SelectionSettings = { ratio_percent: number; threshold_yuan: number };
 const selectionSettingsKey = ['douyin-selection-settings'];
 const calculationNumber = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 const calculationAmount = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
-const skuSourceLabels = { manual: '手动指定', hot_price: '火爆价', hot: '热销标记', fallback: '首个有效券后价' };
-const selectionTag = '商品卡测算达标';
+const skuSourceLabels = { manual: '手动指定', hot_price: '火爆价', hot: '热销标记', fallback: '可用规格报价' };
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
@@ -111,6 +110,7 @@ function DouyinSelectionBreakdown({ record }: { record: DouyinRecord }) {
     onError: () => { void client.invalidateQueries({ queryKey: ['douyin-detail', record.record_id] }); },
   });
   const result = signal?.estimatedYuan;
+  const selectionTag = douyinSelectionLabel(signal);
   const selection = signal?.skuSource === 'manual' ? signal.skuIndex : null;
   const selectedIndex = override.isPending ? override.variables : selection;
   const rule = settings.data;
@@ -118,20 +118,22 @@ function DouyinSelectionBreakdown({ record }: { record: DouyinRecord }) {
   return <section className={`card card-body ${styles.section}`}>
     <div className={styles.selectionHeading}>
       <h3>商品卡测算</h3>
-      {signal?.marked && <span className={styles.selectionTag}>{selectionTag}</span>}
+      {selectionTag && <span className={signal?.marked ? styles.selectionTag : styles.selectionTagBelow}>{selectionTag}</span>}
     </div>
     <dl className={styles.facts}>
       <div><dt>考古加商品卡销量下限</dt><dd>{signal?.salesMinimum == null ? '未采到' : `${calculationNumber.format(signal.salesMinimum)} 件`}</dd></div>
       <div><dt>统计天数</dt><dd>{signal?.periodDays == null ? '未确认' : `${calculationNumber.format(signal.periodDays)} 天`}</dd></div>
       <div><dt>折算日销下限</dt><dd>{signal?.dailySalesMinimum == null ? '无法折算' : `${calculationNumber.format(signal.dailySalesMinimum)} 件/日`}</dd></div>
-      <div><dt>测算单价</dt><dd>{price(signal?.priceFen)}</dd></div>
+      <div><dt>{signal && signal.skuCount > 1 ? '测算平均单价' : '测算单价'}</dt>
+        <dd>{signal?.priceFen == null ? '未采到' : `¥${calculationAmount.format(signal.priceFen / 100)}`}</dd></div>
       <div><dt>日销测算金额</dt><dd>{result == null ? '暂无结果' : `¥${calculationAmount.format(result)} / 日`}</dd></div>
-      <div><dt>选品标签</dt><dd>{signal?.marked ? selectionTag : record.product_state === 'invalid'
-        ? '商品已失效' : result == null ? '无法测算' : '未达标'}</dd></div>
+      <div><dt>选品标签</dt><dd>{selectionTag || (record.product_state === 'invalid' ? '商品已失效' : '无法测算')}</dd></div>
     </dl>
     {signal?.salesMinimum != null && signal.periodDays == null && <p className={styles.selectionFormula}>统计周期未确认，暂无法折算日销。</p>}
     {rule && <p className={styles.selectionFormula}>测算比例 {calculationNumber.format(rule.ratio_percent)}% · 每日测算金额严格大于 ¥{calculationNumber.format(rule.threshold_yuan)} 时达标</p>}
-    {signal?.skuSource && <p className={styles.selectionFormula}>当前规格 {signal.skuName || '未命名规格'} · {skuSourceLabels[signal.skuSource]}</p>}
+    {signal?.skuSource && <p className={styles.selectionFormula}>{signal.skuCount > 1
+      ? `${signal.skuCount} 款规格取平均 · ${skuSourceLabels[signal.skuSource]}`
+      : `当前规格 ${signal.skuName || '未命名规格'} · ${skuSourceLabels[signal.skuSource]}`}</p>}
     {record.product_state !== 'invalid' && eligible.length > 0 && <label className={styles.skuPicker}>
       测算规格
       <select value={selectedIndex == null ? '' : String(selectedIndex)} disabled={override.isPending}
@@ -244,13 +246,16 @@ function DouyinDetail({ id }: { id: string }) {
       <section className={`card card-body ${styles.section}`}>
         <h3>规格报价 <small className={styles.muted}>{record.skus.length} 条</small></h3>
         {record.skus.length ? <div className="table-wrap"><table className={styles.table}>
-          <thead><tr><th>规格</th><th>券前价</th><th>券后价</th><th>标记</th></tr></thead>
-          <tbody>{record.skus.map((sku, i) => <tr key={i}>
-            <td>{skuName(sku)}</td>
-            <td>{price(sku.price_before_coupon_fen)}<small>{display(sku.price_before_label)}</small></td>
-            <td>{price(sku.price_after_coupon_fen)}<small>{display(sku.price_after_label)}</small></td>
-            <td>{[sku.hot === true && '热销', sku.available === false && '不可选'].filter(Boolean).join(' · ') || '—'}</td>
-          </tr>)}</tbody>
+          <thead><tr><th>规格</th><th>报价</th><th>标记</th></tr></thead>
+          <tbody>{record.skus.map((sku, i) => {
+            const { before, after } = skuQuotes(sku);
+            return <tr key={i}>
+              <td>{skuName(sku)}</td>
+              <td>{[before, after].filter(quote => quote !== null)
+                .map(quote => `${quote.label} ${price(quote.fen)}`).join(' · ') || '未采到'}</td>
+              <td>{[sku.hot === true && '热销', sku.available === false && '不可选'].filter(Boolean).join(' · ') || '—'}</td>
+            </tr>;
+          })}</tbody>
         </table></div> : <p className={styles.muted}>这条记录没有规格报价。</p>}
       </section>
     </>}

@@ -1,4 +1,5 @@
 import type { DouyinRecord, DouyinSku } from '../types/douyin';
+import { isPriceFen } from './douyinProduct';
 
 export interface DouyinSelectionRule {
   ratioPercent: number;
@@ -11,6 +12,7 @@ export interface DouyinSelectionSignal {
   dailySalesMinimum: number | null;
   skuIndex: number | null;
   skuName: string;
+  skuCount: number;
   priceFen: number | null;
   skuSource: 'manual' | 'hot_price' | 'hot' | 'fallback' | null;
   estimatedYuan: number | null;
@@ -109,13 +111,9 @@ function hasHotPriceBadge(values: unknown) {
     || (entry !== null && typeof entry === 'object' && [entry.name, entry.label, entry.text].some(hasHotPrice)));
 }
 
-function validPriceFen(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-}
-
 function skuPrices(sku: SkuPricing) {
-  const after = validPriceFen(sku.price_after_coupon_fen) ? sku.price_after_coupon_fen : null;
-  const before = validPriceFen(sku.price_before_coupon_fen) ? sku.price_before_coupon_fen : null;
+  const after = isPriceFen(sku.price_after_coupon_fen) ? sku.price_after_coupon_fen : null;
+  const before = isPriceFen(sku.price_before_coupon_fen) ? sku.price_before_coupon_fen : null;
   if (hasHotPrice(sku.price_after_label) && after !== null) return { priceFen: after, hotPrice: true };
   if (hasHotPrice(sku.price_before_label) && before !== null) return { priceFen: before, hotPrice: true };
 
@@ -129,24 +127,29 @@ function skuPrices(sku: SkuPricing) {
 
   const hotPrice = [sku.price_after_label, sku.price_before_label, sku.price_label, sku.price_text, sku.promotion_label].some(hasHotPrice)
     || [sku.tags, sku.badges, sku.labels].some(hasHotPriceBadge);
-  return { priceFen: after, hotPrice };
+  return { priceFen: after ?? before, hotPrice, hasDiscountPrice: after !== null };
 }
 
-type PricedSku = { index: number; name: string; priceFen: number; hotPrice: boolean; hot: boolean };
+type PricedSku = { index: number; name: string; priceFen: number; hotPrice: boolean; hot: boolean; hasDiscountPrice?: boolean };
 
 function pricedSkus(record: DouyinRecord): PricedSku[] {
   return Array.isArray(record.skus) ? record.skus.flatMap((sku, index) => {
     if (!sku || typeof sku !== 'object' || sku.available === false) return [];
-    const { priceFen, hotPrice } = skuPrices(sku);
+    const { priceFen, hotPrice, hasDiscountPrice } = skuPrices(sku);
     if (priceFen === null) return [];
     const name = typeof sku.name === 'string' && sku.name.trim() ? sku.name.trim() : `规格 ${index + 1}`;
-    return [{ index, name, priceFen, hotPrice, hot: sku.hot === true }];
+    return [{ index, name, priceFen, hotPrice, hot: sku.hot === true, hasDiscountPrice }];
   }) : [];
 }
 
 export function eligibleDouyinSkus(record: DouyinRecord): { index: number; name: string; priceFen: number }[] {
   if (record.product_state === 'invalid' || record.status === 'failed') return [];
   return pricedSkus(record).map(({ index, name, priceFen }) => ({ index, name, priceFen }));
+}
+
+export function douyinSelectionLabel(signal: DouyinSelectionSignal | undefined) {
+  if (signal?.estimatedYuan == null) return '';
+  return signal.marked ? '商品卡测算达标' : '商品卡测算未达标';
 }
 
 export function calculateDouyinSelection(
@@ -157,32 +160,37 @@ export function calculateDouyinSelection(
   const salesMinimum = minimumDouyinCardSales(record.source_detail?.core_data?.['商品卡销量']);
   const periodDays = cardSalesPeriodDays(record.source_detail);
   const dailySalesMinimum = salesMinimum !== null && periodDays !== null ? salesMinimum / periodDays : null;
-  const empty = { salesMinimum, periodDays, dailySalesMinimum, skuIndex: null, skuName: '', priceFen: null, skuSource: null, estimatedYuan: null, marked: false };
+  const empty = { salesMinimum, periodDays, dailySalesMinimum, skuIndex: null, skuName: '', skuCount: 0, priceFen: null, skuSource: null, estimatedYuan: null, marked: false };
   if (record.product_state === 'invalid' || record.status === 'failed') return empty;
 
   const options = pricedSkus(record);
   const manual = options.find(sku => sku.index === preferredSkuIndex);
-  const explicit = options.find(sku => sku.hotPrice);
-  const hot = options.find(sku => sku.hot);
-  const selected = manual ?? explicit ?? hot ?? options[0];
-  if (!selected) return empty;
+  const explicit = options.filter(sku => sku.hotPrice);
+  const hot = options.filter(sku => sku.hot);
+  const fallback = options.find(sku => sku.hasDiscountPrice) ?? options[0];
+  const selected = manual ? [manual] : explicit.length ? explicit : hot.length ? hot : fallback ? [fallback] : [];
+  if (!selected.length) return empty;
+  const sumFen = selected.reduce((sum, sku) => sum + BigInt(sku.priceFen), 0n);
+  const count = selected.length;
 
   const picked: DouyinSelectionSignal = {
     ...empty,
-    skuIndex: selected.index,
-    skuName: selected.name,
-    priceFen: selected.priceFen,
-    skuSource: manual ? 'manual' : explicit ? 'hot_price' : hot ? 'hot' : 'fallback',
+    skuIndex: count === 1 ? selected[0].index : null,
+    skuName: count === 1 ? selected[0].name : '',
+    skuCount: count,
+    priceFen: Number(sumFen) / count,
+    skuSource: manual ? 'manual' : explicit.length ? 'hot_price' : hot.length ? 'hot' : 'fallback',
   };
   const ratio = Math.round(rule.ratioPercent * 100);
   const thresholdFen = Math.round(rule.thresholdYuan * 100);
   if (salesMinimum === null || periodDays === null || !Number.isSafeInteger(ratio) || ratio < 0 || ratio > 10000
       || !Number.isSafeInteger(thresholdFen) || thresholdFen < 0) return picked;
 
-  const amount = BigInt(salesMinimum) * BigInt(selected.priceFen) * BigInt(ratio);
+  const amount = BigInt(salesMinimum) * sumFen * BigInt(ratio);
+  const periods = BigInt(periodDays) * BigInt(count);
   return {
     ...picked,
-    estimatedYuan: Number(amount) / (1_000_000 * periodDays),
-    marked: amount > BigInt(thresholdFen) * 10_000n * BigInt(periodDays),
+    estimatedYuan: Number(amount) / (1_000_000 * Number(periods)),
+    marked: amount > BigInt(thresholdFen) * 10_000n * periods,
   };
 }

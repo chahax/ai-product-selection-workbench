@@ -69,6 +69,8 @@ public final class CollectorService extends AccessibilityService {
     private long returnStableSince;
     private int combinationIndex = -1;
     private int selectionClicks;
+    private String lastSelectionState = "";
+    private int unchangedSelectionClicks;
     private int priceRestarts;
     private int stableSamples;
     private int blockedSamples;
@@ -1532,6 +1534,8 @@ public final class CollectorService extends AccessibilityService {
             combinationStarted = SystemClock.uptimeMillis();
             selectionChangedAt = combinationStarted;
             selectionClicks = 0;
+            lastSelectionState = "";
+            unchangedSelectionClicks = 0;
             priceRestarts = 0;
             blockedSamples = 0;
             blockedSelection = "";
@@ -1551,7 +1555,7 @@ public final class CollectorService extends AccessibilityService {
         LinkedHashMap<String, String> desired = combinations.get(index);
         int blocked = 0;
         StringBuilder context = new StringBuilder();
-        DouyinAdapter.Option nextOption = null;
+        List<DouyinAdapter.Option> selectable = new ArrayList<>();
         for (Map.Entry<String, String> value : desired.entrySet()) {
             DouyinAdapter.Group group = findGroup(screen, value.getKey());
             DouyinAdapter.Option option = findOption(group, value.getValue());
@@ -1563,21 +1567,30 @@ public final class CollectorService extends AccessibilityService {
                     .append(option.enabled).append(':').append(option.selected).append(';');
             if (!option.enabled) {
                 blocked++;
-            } else if (!option.selected && nextOption == null) {
-                nextOption = option;
+            } else if (!option.selected) {
+                selectable.add(option);
             }
         }
         // A disabled option may be restricted by the previous combination. First
         // move every other target dimension that is currently selectable.
-        if (nextOption != null) {
-            if (++selectionClicks > 14) {
-                pause("规格选择多次互相影响，未能确认目标组合，进度已保留");
+        if (!selectable.isEmpty()) {
+            String selectionState = context.toString();
+            unchangedSelectionClicks = selectionState.equals(lastSelectionState) ? unchangedSelectionClicks + 1 : 0;
+            lastSelectionState = selectionState;
+            if (++selectionClicks > 14 || unchangedSelectionClicks >= 3 * selectable.size()) {
+                if (batchMode) {
+                    currentSku = sku(desired);
+                    put(currentSku, "availability_note", "平台未切换到目标组合，报价未核实");
+                    appendSku();
+                } else {
+                    pause("规格选择多次互相影响，未能确认目标组合，进度已保留");
+                }
                 return;
             }
             selectionChangedAt = SystemClock.uptimeMillis();
             blockedSamples = 0;
             blockedSelection = "";
-            click(nextOption.bounds);
+            click(selectable.get(unchangedSelectionClicks % selectable.size()).bounds);
             schedule(850);
             return;
         }

@@ -3,6 +3,7 @@ import type { DouyinRecord, DouyinSku } from '../types/douyin';
 import {
   calculateDouyinSelection,
   DEFAULT_DOUYIN_SELECTION_RULE,
+  douyinSelectionLabel,
   eligibleDouyinSkus,
   minimumDouyinCardSales,
 } from '../utils/douyinSelection';
@@ -72,7 +73,35 @@ describe('Douyin selection signals', () => {
     expect(calculateDouyinSelection(record('250', skus))).toMatchObject({ skuIndex: 3, skuSource: 'hot' });
     const fallback = record('250', skus.slice(0, 3));
     expect(calculateDouyinSelection(fallback)).toMatchObject({ skuIndex: 2, skuSource: 'fallback', priceFen: 5500 });
-    expect(eligibleDouyinSkus(fallback)).toEqual([{ index: 2, name: '首个有券后价规格', priceFen: 5500 }]);
+    expect(eligibleDouyinSkus(fallback)).toEqual([
+      { index: 1, name: '规格 2', priceFen: 2599 },
+      { index: 2, name: '首个有券后价规格', priceFen: 5500 },
+    ]);
+  });
+
+  it('averages all priced hot SKUs, including a single-quote SKU, without rounding the threshold comparison', () => {
+    const row = record('100', [
+      { name: '普通款', price_after_coupon_fen: 9000 },
+      { name: '热销款 A', hot: true, price_before_coupon_fen: 5000 },
+      { name: '热销款 B', hot: true, price_after_coupon_fen: 5001 },
+      { name: '已售罄热销款', hot: true, available: false, price_after_coupon_fen: 8000 },
+    ]);
+    const signal = calculateDouyinSelection(row, { ratioPercent: 30, thresholdYuan: 1500.15 });
+    expect(signal).toMatchObject({ skuCount: 2, skuIndex: null, skuSource: 'hot', priceFen: 5000.5, estimatedYuan: 1500.15, marked: false });
+    expect(douyinSelectionLabel(signal)).toBe('商品卡测算未达标');
+    expect(calculateDouyinSelection(row, DEFAULT_DOUYIN_SELECTION_RULE, 1))
+      .toMatchObject({ skuCount: 1, skuIndex: 1, skuSource: 'manual', priceFen: 5000 });
+  });
+
+  it('averages multiple explicitly labeled hot prices', () => {
+    const row = record('100', [
+      { price_before_coupon_fen: 6000, price_before_label: '火爆价', price_after_coupon_fen: 3000 },
+      { price_after_coupon_fen: 8000, price_after_label: '火爆价' },
+      { hot: true, price_after_coupon_fen: 9000 },
+    ]);
+    const signal = calculateDouyinSelection(row);
+    expect(signal).toMatchObject({ skuCount: 2, skuSource: 'hot_price', priceFen: 7000, marked: true });
+    expect(douyinSelectionLabel(signal)).toBe('商品卡测算达标');
   });
 
   it('supports a chosen SKU and uses strictly greater than after rule adjustment', () => {
@@ -92,9 +121,11 @@ describe('Douyin selection signals', () => {
   it('retains zero and leaves missing or unavailable evidence unmarked', () => {
     const row = record('0-250', [{ price_after_coupon_fen: 5000 }]);
     expect(calculateDouyinSelection(row)).toMatchObject({ salesMinimum: 0, estimatedYuan: 0, marked: false });
-    expect(calculateDouyinSelection(record('未知', row.skus))).toMatchObject({ salesMinimum: null, estimatedYuan: null, marked: false });
+    const missing = calculateDouyinSelection(record('未知', row.skus));
+    expect(missing).toMatchObject({ salesMinimum: null, estimatedYuan: null, marked: false });
+    expect(douyinSelectionLabel(missing)).toBe('');
     expect(calculateDouyinSelection(record('250', [{ price_before_coupon_fen: 5000 }])))
-      .toMatchObject({ salesMinimum: 250, skuIndex: null, estimatedYuan: null, marked: false });
+      .toMatchObject({ salesMinimum: 250, skuIndex: 0, estimatedYuan: 3750, marked: true });
     expect(calculateDouyinSelection({ ...row, product_state: 'invalid' }))
       .toMatchObject({ skuIndex: null, estimatedYuan: null, marked: false });
     expect(eligibleDouyinSkus({ ...row, status: 'failed' })).toEqual([]);

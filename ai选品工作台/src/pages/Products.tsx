@@ -10,34 +10,16 @@ import { useToast } from '../components/Toast';
 import { useKeyboard } from '../hooks/useKeyboard';
 import { useSearchHistory } from '../hooks/useSearchHistory';
 import { relativeTime } from '../utils/time';
-import { couponPrice, display, productLink, status, title } from '../utils/douyinProduct';
+import { display, observedDouyinPrice, productLink, status, title } from '../utils/douyinProduct';
+import { douyinSelectionLabel } from '../utils/douyinSelection';
 import type { GoodsInfo, GroupInfo, TagInfo } from '../types';
 import type { DouyinRecord } from '../types/douyin';
 import s from '../styles/modules/Products.module.css';
-import { DouyinSelectionSettings } from './DouyinLibrary';
 
 export default function Products() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const platform = params.get('platform') === 'douyin' ? 'douyin' : 'pdd';
-
-  return (
-    <>
-      <div className="page-header">
-        <h2>商品库</h2>
-        <label className={s.platformField}>
-          平台
-          <select value={platform} onChange={event => {
-            const nextPlatform = event.currentTarget.value;
-            setParams(nextPlatform === 'douyin' ? { platform: 'douyin' } : {});
-          }}>
-            <option value="pdd">拼多多</option>
-            <option value="douyin">抖音</option>
-          </select>
-        </label>
-      </div>
-      <ProductList key={platform} platform={platform} />
-    </>
-  );
+  return <ProductList key={platform} platform={platform} />;
 }
 
 function ProductList({ platform }: { platform: LibraryPlatform }) {
@@ -181,6 +163,26 @@ function ProductList({ platform }: { platform: LibraryPlatform }) {
     catch { toast.error('删除失败'); }
   }, [selected, library.deleteSelection, confirm, toast]);
 
+  const handleDeleteInvalid = async () => {
+    const ok = await confirm({
+      title: '清理失效商品',
+      message: '将永久删除抖音商品库中所有已标记为「商品已失效」的记录，包括其他页面和当前筛选范围以外的记录。',
+      confirmText: '清理失效商品',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await library.deleteInvalid.mutateAsync();
+      if (result.deleted_count > 0) {
+        setSelected(new Set());
+        setPage(1);
+        toast.success(`已清理 ${result.deleted_count} 件失效商品`);
+      } else {
+        toast.success('没有需要清理的失效商品');
+      }
+    } catch { toast.error('清理失效商品失败'); }
+  };
+
   const handleBatchPrice = useCallback(async () => {
     const ids = [...selected]; if (ids.length === 0) return;
     try {
@@ -239,6 +241,29 @@ function ProductList({ platform }: { platform: LibraryPlatform }) {
 
   return (
     <>
+      <div className={`page-header ${s.libraryHeader}`}>
+        <h2>商品库</h2>
+        <label className={s.platformField}>
+          平台
+          <select value={platform} onChange={event => {
+            setSearchParams(event.currentTarget.value === 'douyin' ? { platform: 'douyin' } : {});
+          }}>
+            <option value="pdd">拼多多</option>
+            <option value="douyin">抖音</option>
+          </select>
+        </label>
+        {isDouyin && <div className={s.platformActions}>
+          {data && <span>{data.total} 条采集记录</span>}
+          <button className="btn btn-primary btn-sm" type="button" disabled={importer.isPending} onClick={() => fileInput.current?.click()}>
+            {importer.isPending ? '正在入库…' : '导入手机采集 JSON'}
+          </button>
+          <input ref={fileInput} type="file" hidden accept=".json,application/json" onChange={event => {
+            const file = event.currentTarget.files?.[0];
+            if (file) importer.mutate(file);
+            event.currentTarget.value = '';
+          }} />
+        </div>}
+      </div>
       <div className={s.toolbar}>
         <div className={s.toolbarSearch} style={{ position: 'relative' }}>
           <input ref={searchRef} value={searchInput} onChange={e => setSearchInput(e.target.value)}
@@ -325,7 +350,7 @@ function ProductList({ platform }: { platform: LibraryPlatform }) {
         </div>
       </div>
 
-      <div className={s.filterBar} style={{ marginBottom: 16 }}>
+      <div className={s.filterBar}>
         <div className={s.filterGroup}>
           <span className={s.filterLabel}>标签</span>
           <div className={s.filterPills}>
@@ -358,41 +383,32 @@ function ProductList({ platform }: { platform: LibraryPlatform }) {
         </div>
       </div>
 
-      {isDouyin && <>
-        <div className={s.platformActions}>
-          {data && <span>{data.total} 条采集记录</span>}
-          <button className="btn btn-primary btn-sm" type="button" disabled={importer.isPending} onClick={() => fileInput.current?.click()}>
-            {importer.isPending ? '正在入库…' : '导入手机采集 JSON'}
-          </button>
-          <input ref={fileInput} type="file" hidden accept=".json,application/json" onChange={event => {
-            const file = event.currentTarget.files?.[0];
-            if (file) importer.mutate(file);
-            event.currentTarget.value = '';
-          }} />
-        </div>
-        <DouyinSelectionSettings />
-        {importer.isSuccess && <p role="status" className={s.listMessage}>
-          导入完成 · 新增 {importer.data.inserted} 条 · 更新 {importer.data.updated} 条 · 跳过 {importer.data.skipped} 条
-        </p>}
-        {importer.isError && <p role="alert" className={s.listMessage}>{importer.error.message}</p>}
-      </>}
-
-      {(items.length > 0 || selected.size > 0) && (
-        <div className={s.batchBar}>
+      {(items.length > 0 || selected.size > 0 || isDouyin && data) && (
+        <div className={s.filterBar} role="group" aria-label="商品操作">
+          <span className={s.filterLabel}>操作</span>
           <button type="button" className="btn btn-outline btn-sm" onClick={toggleAll} disabled={!allIds.length}>
             {allSelected ? '取消全选本页' : '全选本页'}
           </button>
+          {isDouyin && <button type="button" className={`btn btn-outline btn-sm ${s.dangerAction}`}
+            onClick={handleDeleteInvalid} disabled={library.deleteInvalid.isPending}>
+            {library.deleteInvalid.isPending ? '正在清理…' : '清理失效商品'}
+          </button>}
           {selected.size > 0 && <>
-            <span style={{ fontSize: 13, color: 'var(--brand-text-secondary)' }}>已选 {selected.size} 件</span>
+            <span className={s.filterLabel}>已选 {selected.size} 件</span>
             <button className="btn btn-outline btn-sm" onClick={() => setPriceModal(true)}>批量改价</button>
             <button className="btn btn-outline btn-sm" onClick={() => setBatchTaxonomy({ kind: 'tag', id: '' })}>批量标签</button>
             <button className="btn btn-outline btn-sm" onClick={() => setBatchTaxonomy({ kind: 'group', id: '' })}>批量分组</button>
             <button className="btn btn-outline btn-sm" onClick={handleBatchExport}>批量导出</button>
-            <button className="btn btn-outline btn-sm" style={{ color: 'var(--brand-red)', borderColor: 'var(--brand-red)' }} onClick={handleDeleteSelected}>批量删除</button>
+            <button className={`btn btn-outline btn-sm ${s.dangerAction}`} onClick={handleDeleteSelected}>批量删除</button>
             <button className="btn btn-outline btn-sm" onClick={() => setSelected(new Set())}>取消选择</button>
           </>}
         </div>
       )}
+
+      {importer.isSuccess && <p role="status" className={s.listMessage}>
+        导入完成 · 新增 {importer.data.inserted} 条 · 更新 {importer.data.updated} 条 · 跳过 {importer.data.skipped} 条
+      </p>}
+      {importer.isError && <p role="alert" className={s.listMessage}>{importer.error.message}</p>}
 
       {error ? <p role="alert" className={s.listMessage}>商品读取失败 · {error.message}</p> : isPending ? (
         <div className="empty" role="status" style={{ padding: 60 }}>正在读取商品…</div>
@@ -431,7 +447,7 @@ function ProductList({ platform }: { platform: LibraryPlatform }) {
                     <span className={s.cardTime}>{relativeTime(item.capturedAt)}</span>
                   </div>
                   {(item.signal || !!item.tags?.length || !!item.groups?.length) && <div className={s.cardLabels}>
-                    {item.signal && <span className={s.selectionTag}>商品卡测算达标</span>}
+                    {item.signal && <span className={item.signal.marked ? s.selectionTag : s.selectionTagBelow}>{item.signal.label}</span>}
                     {item.tags?.map(tag => <span key={tag.id}><i className={s.filterDot} style={{ background: tag.color }} />{tag.name}</span>)}
                     {item.groups?.map(group => <span key={group.id}>{group.name}</span>)}
                   </div>}
@@ -544,7 +560,7 @@ type LibraryCard = {
   details?: string;
   stock?: number;
   priceModified?: boolean;
-  signal?: boolean;
+  signal?: { label: string; marked: boolean };
   tags?: TagInfo[];
   groups?: GroupInfo[];
 };
@@ -587,27 +603,25 @@ function pddCard(product: GoodsInfo): LibraryCard {
 }
 
 function douyinCard(record: DouyinRecord): LibraryCard {
-  const coupon = couponPrice(record);
-  const { library_price: min, library_price_max: max } = record;
-  let amount = coupon;
-  if (typeof min === 'number') {
-    if (typeof max === 'number') amount = min === max ? money(min) : `${money(min)} ~ ${money(max)}`;
-    else if (record.library_price_modified || !coupon) amount = money(min);
-  }
+  const observed = observedDouyinPrice(record);
+  const min = record.library_price ?? (observed.fen === null ? null : observed.fen / 100);
+  const max = record.library_price_max ?? (observed.maxFen === null ? min : observed.maxFen / 100);
+  const amount = min === null ? '' : max === null || min === max ? money(min) : `${money(min)} ~ ${money(max)}`;
   const cardSales = display(record.source_detail?.core_data?.['商品卡销量']);
-  const priceLabel = record.library_price_label ?? (record.library_price_modified ? '工作台报价' : coupon ? '券后价' : '券前价');
+  const priceLabel = record.library_price_label ?? (record.library_price_modified ? '工作台报价' : observed.label);
+  const label = douyinSelectionLabel(record.selection_signal);
   return {
     id: record.record_id,
     title: title(record),
     image: record.stored_cover_url?.startsWith(`${DOUYIN_LIBRARY_API}/image?`) ? record.stored_cover_url : '',
     link: productLink(record),
     price: amount,
-    sales: cardSales ? `商品卡 ${cardSales}` : amount ? priceLabel : status(record),
+    sales: cardSales ? `商品卡 ${cardSales}` : amount && priceLabel ? priceLabel : status(record),
     shop: display(record.library_shop, record.douyin_shop_name),
     capturedAt: record.captured_at,
     details: [cardSales && amount ? priceLabel : '', `${record.skus.length} 款`, status(record)].filter(Boolean).join(' · '),
     priceModified: record.library_price_modified,
-    signal: record.selection_signal?.marked,
+    signal: label ? { label, marked: record.selection_signal?.marked === true } : undefined,
     tags: record.tags,
     groups: record.groups,
   };

@@ -25,7 +25,9 @@
 .ruleForm input, .skuPicker select { min-height: 34px; padding: 6px 8px; border: 1px solid var(--brand-border-strong); border-radius: var(--radius-sm); color: inherit; background: var(--brand-surface); font: inherit; }
 .ruleForm input { width: 112px; }
 .selectionHeading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
-.selectionTag { display: inline-flex; margin-bottom: 4px; padding: 2px 7px; border-radius: 6px; background: #e7f4eb; color: #195d36; font-size: 12px; font-weight: 600; }
+.selectionTag, .selectionTagBelow { display: inline-flex; margin-bottom: 4px; padding: 2px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.selectionTag { background: #e7f4eb; color: #195d36; }
+.selectionTagBelow { background: #fbecec; color: #942d37; }
 .selectionFormula { margin-top: 8px; color: var(--brand-text-secondary); overflow-wrap: anywhere; }
 .skuPicker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .skuPicker select { max-width: min(100%, 420px); }

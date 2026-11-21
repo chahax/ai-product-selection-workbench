@@ -6,13 +6,13 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Plugin } from 'vite';
 import type { DouyinRecord, WebImageFetchResult } from '../src/types/douyin';
 import { productLink } from '../src/utils/douyinProduct';
-import { calculateDouyinSelection, DEFAULT_DOUYIN_SELECTION_RULE, eligibleDouyinSkus } from '../src/utils/douyinSelection';
+import { calculateDouyinSelection, DEFAULT_DOUYIN_SELECTION_RULE, douyinSelectionLabel, eligibleDouyinSkus } from '../src/utils/douyinSelection';
 import type { DouyinSelectionRule } from '../src/utils/douyinSelection';
 import { fetchWebProductImages } from './douyin-web-images';
 import {
   RequestError, isObject, initializeDouyinLibrary, queryDouyinProducts, douyinProductMetadata,
   douyinShops, listDouyinLabels, createDouyinLabel, deleteDouyinLabel,
-  updateDouyinProducts, deleteDouyinProducts, exportDouyinProducts, douyinDuplicates,
+  updateDouyinProducts, deleteDouyinProducts, deleteInvalidDouyinProducts, exportDouyinProducts, douyinDuplicates,
 } from './douyin-library';
 import {
   acknowledgeMobileRecord, authenticateMobile, fromMobileGateway, handleMobileTaskRequest, initializeMobileTasks,
@@ -224,7 +224,8 @@ export function douyinDatabase(): Plugin {
     const row = database().prepare('SELECT sku_index FROM douyin_selection_skus WHERE record_id = ? AND revision = ?')
       .get(record.record_id, revision);
     const signal = calculateDouyinSelection(record, rule, row ? Number(row.sku_index) : undefined);
-    return { selection_signal: signal, selection_labels: signal.marked ? ['商品卡测算达标'] : [] };
+    const label = douyinSelectionLabel(signal);
+    return { selection_signal: signal, selection_labels: label ? [label] : [] };
   }
 
   const imageJobs = new Map<string, Promise<WebImageFetchResult>>();
@@ -310,7 +311,7 @@ export function douyinDatabase(): Plugin {
       ? /^(tags|groups)(?:\/(\d+))?$/.exec(url.pathname.slice(API.length + 1)) : null;
     if (![API, `${API}/import`, `${API}/image`, `${API}/web-images`,
       `${API}/selection-settings`, `${API}/selection-sku`, `${API}/shops`, `${API}/duplicates`,
-      `${API}/batch-update`, `${API}/delete`, `${API}/export`, MOBILE_API].includes(url.pathname)
+      `${API}/batch-update`, `${API}/delete`, `${API}/delete-invalid`, `${API}/export`, MOBILE_API].includes(url.pathname)
       && !labelPath && !mobileTask) { next(); return; }
     void (async () => {
       if (mobileTask) {
@@ -330,6 +331,9 @@ export function douyinDatabase(): Plugin {
         send(response, updateDouyinProducts(database(), await readJson(request)));
       } else if (request.method === 'POST' && url.pathname === `${API}/delete`) {
         send(response, deleteDouyinProducts(database(), await readJson(request)));
+      } else if (request.method === 'POST' && url.pathname === `${API}/delete-invalid`) {
+        await readJson(request);
+        send(response, deleteInvalidDouyinProducts(database()));
       } else if (request.method === 'POST' && url.pathname === `${API}/export`) {
         send(response, exportDouyinProducts(database(), await readJson(request)));
       } else if (request.method === 'GET' && url.pathname === `${API}/selection-settings`) {

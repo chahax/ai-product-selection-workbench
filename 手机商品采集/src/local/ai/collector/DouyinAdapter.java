@@ -28,6 +28,7 @@ public final class DouyinAdapter {
     private static final String AFTER = "火爆价|预估券后价|预估到手价|百亿补贴价|平台补贴价|券后价|实付价|补贴价|到手价|活动价|优惠价|限时价|拼团价|秒杀价|首单价|首件价|会员价|新人价";
     private static final Pattern PAIR = Pattern.compile("^(" + BEFORE + "|火爆价)?¥(" + VALUE + ")(" + AFTER + ")¥(" + VALUE + ")$");
     private static final Pattern PAID_FIRST = Pattern.compile("^实付价¥(" + VALUE + ")(" + BEFORE + ")¥(" + VALUE + ")$");
+    private static final Pattern PROMOTION_WITH_REFERENCE = Pattern.compile("^大促价¥(" + VALUE + ")¥(" + VALUE + ")$");
     private static final Pattern SINGLE = Pattern.compile("^(" + AFTER + "|" + BEFORE + ")?¥(" + VALUE + ")$");
     private static final Pattern SAVINGS = Pattern.compile("^(?:加补\\+平台券等共省|券共减|已优惠|共省)¥?(" + VALUE + ")元?$");
     private static final Pattern OPTION = Pattern.compile("^(已选择|已选中|已选|未选择|未选中)[:：]?\\s*(.+)$");
@@ -213,8 +214,11 @@ public final class DouyinAdapter {
             if (!name.enabled || !name.resourceId.endsWith(":id/g2p") || name.text.trim().isEmpty()
                     || name.box.top < 65 * scale || name.box.bottom > height * .10f) continue;
             for (Label search : labels) {
-                if (search.enabled && search.resourceId.endsWith(":id/g4r") && compact(search.text).equals("搜索")
-                        && name.box.right <= search.box.left && search.box.left - name.box.right <= 75 * scale
+                String text = compact(search.text);
+                boolean storeSearch = text.equals("搜索本店商品");
+                if (search.enabled && (storeSearch || search.resourceId.endsWith(":id/g4r") && text.equals("搜索"))
+                        && name.box.right <= search.box.left
+                        && search.box.left - name.box.right <= (storeSearch ? 150 : 75) * scale
                         && name.box.centerY() >= search.box.top && name.box.centerY() <= search.box.bottom) {
                     names.add(name.text.trim());
                 }
@@ -408,6 +412,10 @@ public final class DouyinAdapter {
         if (!result.popup && !result.gallery && !result.title.isEmpty()
                 && "com.ss.android.ugc.aweme".contentEquals(root.getPackageName())
                 && !checkoutFooter) {
+            if (hasBottomAddText(labels, height)) {
+                Rect purchaseEntry = exclusivePurchaseSpecEntry(labels, width, height);
+                if (purchaseEntry != null) result.openSpecs = purchaseEntry;
+            }
             result.couponSpecEntry = couponSpecEntry(labels, width, height);
             if (result.openSpecs == null) result.openSpecs = result.couponSpecEntry;
         }
@@ -634,22 +642,29 @@ public final class DouyinAdapter {
             Matcher reversed = PAID_FIRST.matcher(text);
             Matcher pair = PAIR.matcher(reversed.matches()
                     ? reversed.group(2) + "¥" + reversed.group(3) + "实付价¥" + reversed.group(1) : text);
-            if (!pair.matches()) continue;
-            Long before = fen(pair.group(2));
-            Long after = fen(pair.group(4));
+            Matcher promo = PROMOTION_WITH_REFERENCE.matcher(text);
+            boolean hasReferencePrice = promo.matches();
+            if (!hasReferencePrice && !pair.matches()) continue;
+            Long before = fen(hasReferencePrice ? promo.group(2) : pair.group(2));
+            Long after = fen(hasReferencePrice ? promo.group(1) : pair.group(4));
             if (before == null || after == null || after > before) continue;
+            String afterLabel = hasReferencePrice ? "大促价" : pair.group(3);
+            String beforeLabel = hasReferencePrice ? "划线价" : pair.group(1);
+            if (beforeLabel == null) beforeLabel = afterLabel.contains("券后") ? "券前价" : "展示价";
             JSONObject price = new JSONObject();
             put(price, "price_before_coupon_fen", before);
             put(price, "price_after_coupon_fen", after);
-            put(price, "price_before_label", pair.group(1) == null ? (pair.group(3).contains("券后") ? "券前价" : "展示价") : pair.group(1));
-            put(price, "price_after_label", pair.group(3));
+            put(price, "price_before_label", beforeLabel);
+            put(price, "price_after_label", afterLabel);
             put(price, "price_text", text);
-            pairs.put(before + "|" + after + "|" + pair.group(3), price);
+            pairs.put(before + "|" + after + "|" + afterLabel, price);
         }
         if (pairs.size() == 1) {
             JSONObject price = pairs.values().iterator().next();
             long difference = price.optLong("price_before_coupon_fen") - price.optLong("price_after_coupon_fen");
-            if (savings.size() == 1 && !savings.contains(difference)) return new JSONObject();
+            if (!"划线价".equals(price.optString("price_before_label")) && savings.size() == 1 && !savings.contains(difference)) {
+                return new JSONObject();
+            }
             return price;
         }
         if (!pairs.isEmpty()) return new JSONObject();
@@ -697,6 +712,31 @@ public final class DouyinAdapter {
     private static boolean isAddToCartLabel(String text) {
         String label = compact(text);
         return label.equals("加购") || label.equals("加购物车");
+    }
+
+    private static Rect exclusivePurchaseSpecEntry(List<Label> labels, int width, int height) {
+        Rect entry = null;
+        for (Label label : labels) {
+            Rect box = label.box;
+            Rect action = label.actionBox;
+            if (!label.enabled || !compact(label.text).equals("立即购买")
+                    || box.top < height * .90f || box.left < width * .70f
+                    || action.left < width * .60f || action.right < width * .90f
+                    || action.top < height * .88f || action.bottom > height
+                    || !action.contains(box) || !enabledClickable(labels, action)
+                    || !hasQuotedPurchase(labels, action, false)) continue;
+            for (Label other : labels) {
+                Rect exclusive = other.actionBox;
+                if (!other.enabled || !compact(other.text).equals("抖音商城App专享")
+                        || exclusive.left < width * .30f || exclusive.right != action.left
+                        || exclusive.top != action.top || exclusive.bottom != action.bottom
+                        || !exclusive.contains(other.box) || !enabledClickable(labels, exclusive)
+                        || !hasQuotedPurchase(labels, exclusive, false)) continue;
+                if (entry != null && !entry.equals(box)) return null;
+                entry = new Rect(box);
+            }
+        }
+        return entry;
     }
 
     private static Rect couponSpecEntry(List<Label> labels, int width, int height) {

@@ -88,6 +88,13 @@ export function useProductLibrary(
       void client.invalidateQueries({ queryKey: [isDouyin ? 'douyin-shops' : 'shops'] });
     },
   });
+  const deleteInvalid = useMutation({
+    mutationFn: () => requestDouyinLibrary<DeleteResult>('/delete-invalid', jsonBody({})),
+    onSuccess: () => {
+      refreshAfterChange();
+      void client.invalidateQueries({ queryKey: ['douyin-shops'] });
+    },
+  });
   const batch = useMutation({
     mutationFn: ({ ids, updates }: { ids: string[]; updates: Record<string, unknown> }) => isDouyin
       ? requestDouyinLibrary<BatchResult>('/batch-update', jsonBody({ ids, updates })) : batchUpdate(ids, updates),
@@ -117,5 +124,5 @@ export function useProductLibrary(
     },
   });
 
-  return { pdd, douyin, shops, tags, groups, duplicates, refresh, deleteSelection, batch, addTag, removeTag, addGroup, removeGroup };
+  return { pdd, douyin, shops, tags, groups, duplicates, refresh, deleteSelection, deleteInvalid, batch, addTag, removeTag, addGroup, removeGroup };
 }

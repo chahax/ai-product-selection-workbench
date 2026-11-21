@@ -1,4 +1,4 @@
-import type { DouyinRecord } from '../types/douyin';
+import type { DouyinRecord, DouyinSku } from '../types/douyin';
 
 export function display(...values: unknown[]) {
   return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0) ?? '';
@@ -16,8 +16,21 @@ export function status(record: DouyinRecord) {
   return '状态未确认';
 }
 
+export function isPriceFen(fen: unknown): fen is number {
+  return typeof fen === 'number' && Number.isSafeInteger(fen) && fen >= 0;
+}
+
 export function price(fen: unknown) {
-  return typeof fen === 'number' && Number.isSafeInteger(fen) && fen >= 0 ? `¥${(fen / 100).toFixed(2)}` : '未采到';
+  return isPriceFen(fen) ? `¥${(fen / 100).toFixed(2)}` : '未采到';
+}
+
+export function skuQuotes(sku: DouyinSku) {
+  const before = sku.price_before_coupon_fen;
+  const after = sku.price_after_coupon_fen;
+  return {
+    before: isPriceFen(before) ? { fen: before, label: display(sku.price_before_label) || (isPriceFen(after) ? '券前价' : '商品价') } : null,
+    after: isPriceFen(after) ? { fen: after, label: display(sku.price_after_label) || '券后价' } : null,
+  };
 }
 
 export function productLink(record: DouyinRecord) {
@@ -34,11 +47,18 @@ export function productLink(record: DouyinRecord) {
   return '';
 }
 
-export function couponPrice(record: DouyinRecord) {
-  const amounts = record.skus.flatMap(sku => typeof sku.price_after_coupon_fen === 'number'
-    && Number.isSafeInteger(sku.price_after_coupon_fen) && sku.price_after_coupon_fen >= 0
-    ? [sku.price_after_coupon_fen] : []);
-  if (!amounts.length) return '';
-  const min = Math.min(...amounts), max = Math.max(...amounts);
-  return min === max ? price(min) : `${price(min)} – ${price(max)}`;
+export function observedDouyinPrice(record: DouyinRecord) {
+  let fen: number | null = null;
+  let maxFen: number | null = null;
+  const labels = new Set<string>();
+  for (const sku of record.skus) {
+    if (sku.available === false) continue;
+    const { before, after } = skuQuotes(sku);
+    const quote = after ?? before;
+    if (!quote) continue;
+    fen = Math.min(fen ?? quote.fen, quote.fen);
+    maxFen = Math.max(maxFen ?? quote.fen, quote.fen);
+    labels.add(quote.label);
+  }
+  return { fen, maxFen, label: labels.size > 1 ? '规格报价' : labels.values().next().value };
 }

@@ -65,6 +65,28 @@ function envelope(recordId: string, jobId?: string) {
   };
 }
 
+it('cleans only explicitly invalid Douyin products and keeps single-price products', async () => {
+  const library = '/api/workbench/douyin';
+  const save = async (id: string, fields: Record<string, unknown>) => {
+    const input = envelope(id);
+    expect((await post(`${library}/import`, { records: [{ ...input.record, ...fields }] })).status).toBe(200);
+  };
+  await save('cleanup-invalid', { status: 'failed', product_state: 'invalid' });
+  await save('cleanup-ordinary-failure', { status: 'failed' });
+  await save('cleanup-single-price', {
+    status: 'complete',
+    source_detail: { core_data_period_days: 30, core_data: { 商品卡销量: '30' } },
+    skus: [{ name: '标准款', price_before_coupon_fen: 3990, price_before_label: '展示价' }],
+  });
+  expect(await (await post(`${library}/delete-invalid`, {})).json()).toEqual({ ok: true, deleted_count: 1 });
+  expect((await fetch(`${address}${library}?id=cleanup-invalid`)).status).toBe(404);
+  expect((await fetch(`${address}${library}?id=cleanup-ordinary-failure`)).status).toBe(200);
+  const kept = await (await fetch(`${address}${library}?id=cleanup-single-price`)).json();
+  expect(kept).toMatchObject({
+    library_price: 39.9, library_price_label: '展示价', selection_labels: ['商品卡测算未达标'],
+  });
+});
+
 it('claims each job once and persists progress and distinct receipts across repeated requests', async () => {
   const alpha = await pair('test-phone-alpha');
   const beta = await pair('test-phone-beta');
