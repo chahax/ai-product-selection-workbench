@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs';
+import { handlePddMobile, pddMobileBase } from './pdd-mobile';
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -306,6 +307,12 @@ export function douyinDatabase(): Plugin {
 
   function middleware(request: IncomingMessage, response: ServerResponse, next: () => void) {
     const url = new URL(request.url ?? '/', 'http://localhost');
+    if (url.pathname === pddMobileBase || url.pathname.startsWith(pddMobileBase + '/')) {
+      void handlePddMobile(url.pathname.slice(pddMobileBase.length), request, response, readJson)
+        .catch(error => send(response, { error: error instanceof RequestError ? error.message : '拼多多采集服务连接失败' },
+          error instanceof RequestError ? error.status : 502));
+      return;
+    }
     const mobileTask = isMobileTaskPath(url.pathname);
     const labelPath = url.pathname.startsWith(`${API}/`)
       ? /^(tags|groups)(?:\/(\d+))?$/.exec(url.pathname.slice(API.length + 1)) : null;

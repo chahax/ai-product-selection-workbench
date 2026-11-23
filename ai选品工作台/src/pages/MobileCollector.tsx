@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import PddMobileCollector from './PddMobileCollector';
+import libraryStyles from '../styles/modules/Products.module.css';
 import { cancelMobileJob, createMobileJob, createMobilePairing, fetchMobileDevices, fetchMobileJobs } from '../api/mobileCollector';
 import type { MobileDevice, MobileJob, MobileJobStatus, MobilePeriod } from '../api/mobileCollector';
 import { useConfirm } from '../components/Confirm';
@@ -105,6 +107,22 @@ function JobCard({ job, device, cancel, cancelling }: {
 }
 
 export default function MobileCollector() {
+  const [params, setParams] = useSearchParams();
+  const isPdd = params.get('platform') === 'pdd';
+  return <div className={s.page}>
+    <header className={`page-header ${s.heading}`}>
+      <h2>手机采集</h2>
+      <label className={libraryStyles.platformField}>平台
+        <select value={isPdd ? 'pdd' : 'douyin'} onChange={event => setParams(event.target.value === 'pdd' ? { platform: 'pdd' } : {})}>
+          <option value="douyin">抖音</option><option value="pdd">拼多多</option>
+        </select>
+      </label>
+    </header>
+    {isPdd ? <PddMobileCollector /> : <DouyinMobileCollector />}
+  </div>;
+}
+
+function DouyinMobileCollector() {
   const client = useQueryClient();
   const { confirm } = useConfirm();
   const toast = useToast();
@@ -166,7 +184,6 @@ export default function MobileCollector() {
     <div className={s.page}>
       <header className={`page-header ${s.heading}`}>
         <div>
-          <h2>手机采集</h2>
           <p className={s.muted}>创建抖音商品采集任务，查看手机进度和回传结果。</p>
         </div>
         <Link className="btn btn-outline" to="/products?platform=douyin">查看抖音商品库</Link>

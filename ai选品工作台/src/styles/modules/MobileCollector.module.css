@@ -39,6 +39,9 @@
 }
 .submit { gap: 8px; }
 .submit button { margin-left: auto; }
+.form .check { display: flex; align-items: center; gap: 8px; }
+.form .check input { width: 16px; min-height: 16px; }
+.panel { min-width: 0; }
 .error { padding: 8px 10px; border-radius: var(--radius-sm); color: #9b2620; background: var(--brand-red-light); font-size: 13px; }
 
 .jobs { display: grid; gap: 12px; }

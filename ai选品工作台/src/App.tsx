@@ -9,6 +9,7 @@ import { ConfirmProvider } from './components/Confirm';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Products = lazy(() => import('./pages/Products'));
 const MobileCollector = lazy(() => import('./pages/MobileCollector'));
+const PddBatchResults = lazy(() => import('./pages/PddBatchResults'));
 const DouyinLibrary = lazy(() => import('./pages/DouyinLibrary'));
 const ProductDetail = lazy(() => import('./pages/ProductDetail'));
 const Selection = lazy(() => import('./pages/Selection'));
@@ -48,13 +49,14 @@ export default function App() {
       <ToastProvider>
         <ErrorBoundary>
           <ConfirmProvider>
-            <BrowserRouter>
+            <BrowserRouter basename={import.meta.env.BASE_URL}>
               <Suspense fallback={<PageSkeleton />}>
                 <Routes>
                   <Route element={<Layout />}>
                     <Route index element={<Dashboard />} />
                     <Route path="products" element={<Products />} />
                     <Route path="mobile-collector" element={<MobileCollector />} />
+                    <Route path="mobile-collector/pdd/:taskId" element={<PddBatchResults />} />
                     <Route path="products/douyin/:recordId" element={<DouyinLibrary />} />
                     <Route path="douyin" element={<LegacyDouyinRoute />} />
                     <Route path="douyin/:recordId" element={<LegacyDouyinRoute />} />

@@ -1,4 +1,4 @@
-const base = '/api/workbench/mobile';
+const base = import.meta.env.BASE_URL + 'api/workbench/mobile';
 
 export type MobilePeriod = 'yesterday' | '7d' | '30d';
 export type MobileJobStatus = 'queued' | 'claimed' | 'waiting_phone' | 'running' | 'paused'
@@ -38,7 +38,11 @@ export interface MobileJob extends MobileJobInput {
 type Pairing = { code: string; expires_at: string };
 
 async function readMobile<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${base}${path}`, options);
+  return readCollector<T>(base + path, options);
+}
+
+export async function readCollector<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
   const data = await response.json().catch(() => null);
   if (!response.ok || data === null) {
     throw new Error(typeof data?.error === 'string' ? data.error : '无法连接手机采集服务');

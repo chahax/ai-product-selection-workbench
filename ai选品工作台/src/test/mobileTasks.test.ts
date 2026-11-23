@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { createServer as createHttpServer } from 'node:http';
 import { createServer } from 'vite';
 import type { ViteDevServer } from 'vite';
 import { douyinDatabase } from '../../server/douyin';
@@ -35,6 +36,35 @@ function post(path: string, body: unknown, token?: string, headers = {}) {
     body: JSON.stringify(body),
   });
 }
+
+it('forwards PDD task images as binary and keeps administration off the mobile gateway', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const image = Buffer.from([255, 216, 255, 217]);
+  const upstream = createHttpServer((req, res) => {
+    if (req.url !== '/api/admin/tasks/' + id + '/images/' + id + '.jpg' || !req.headers.authorization) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'image/jpeg' }).end(image);
+  });
+  await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
+  try {
+    const listener = upstream.address();
+    if (!listener || typeof listener === 'string') throw new Error('Missing test listener');
+    vi.stubEnv('PDD_MOBILE_API_TARGET', 'http://127.0.0.1:' + listener.port);
+    vi.stubEnv('PDD_ADMIN_PASSWORD', 'test-session-only');
+    const base = address + '/api/workbench/pdd-mobile';
+    const imageUrl = base + '/tasks/' + id + '/images/' + id + '.jpg';
+    const result = await fetch(imageUrl);
+    expect(result.status).toBe(200);
+    expect(result.headers.get('content-type')).toBe('image/jpeg');
+    expect(Buffer.from(await result.arrayBuffer())).toEqual(image);
+    expect((await fetch(imageUrl, { headers: { 'X-Workbench-Mobile-Gateway': '1' } })).status).toBe(403);
+    expect((await fetch(base + '/device/next')).status).toBe(404);
+  } finally {
+    await new Promise<void>((resolve, reject) => upstream.close(e => e ? reject(e) : resolve()));
+  }
+});
 
 async function getJobs() {
   return (await (await fetch(`${address}${admin}/jobs`)).json()).jobs;

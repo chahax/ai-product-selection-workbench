@@ -52,7 +52,7 @@ export function fromMobileGateway(request: IncomingMessage) {
   return request.headers['x-workbench-mobile-gateway'] === '1';
 }
 
-function requireAdmin(request: IncomingMessage) {
+export function requireAdmin(request: IncomingMessage) {
   if (!isLocalMobileRequest(request) || fromMobileGateway(request) || request.headers['sec-fetch-site'] === 'cross-site') {
     throw new RequestError(403, '手机采集管理仅允许从工作台本机访问');
   }
