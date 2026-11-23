@@ -46,7 +46,7 @@ const server = createServer({
 }, (request, response) => {
   const path = request.url ?? '';
   if (request.method !== 'POST' ||
-      !/^\/api\/mobile\/(?:pair|records|jobs\/claim|jobs\/[a-z0-9-]{1,80}\/progress)$/.test(path)) {
+      !/^\/api\/mobile\/(?:pair|records|categories|jobs\/claim|jobs\/[a-z0-9-]{1,80}\/progress)$/.test(path)) {
     request.resume();
     send(response, 404, '接口不存在');
     return;

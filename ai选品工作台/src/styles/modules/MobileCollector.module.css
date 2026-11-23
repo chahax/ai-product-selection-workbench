@@ -30,6 +30,11 @@
 .pairing .code { font-family: ui-monospace, monospace; font-size: 16px; font-weight: 600; letter-spacing: .12em; }
 
 .form { display: grid; gap: 12px; }
+.categoryPicker { display: grid; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.categoryPicker legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 500; }
+.categoryStatus { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; }
+.categoryLevels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); gap: 8px; }
+.categoryPicker p { overflow-wrap: anywhere; }
 .formRow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .copyField label, .form label { display: grid; gap: 5px; min-width: 0; font-size: 13px; font-weight: 500; }
 .copyField input, .form input, .form select {

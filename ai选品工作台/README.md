@@ -25,6 +25,8 @@ npm.cmd run dev
 
 工作台的「手机采集」可以给已配对的手机下发抖音采集任务。手机接单后会按考古加的类目、周期和数量执行，采到的商品逐件进入「商品库 → 抖音」。任务页显示采集进度、失败和入库数量。
 
+考古加类目可搜索或逐级选择，允许选择父类目和「不限」。在「新建采集任务」中点击「更新类目」，工作台会从考古加读取并保存最新目录。手机 App 联网打开后同步目录。已下发的任务继续使用创建时的类目路径。首次构建时的备用类目表可用 `node scripts/sync-kaogu-categories.mjs` 更新。
+
 1. 在电脑运行工作台，保持它监听 `127.0.0.1:3000`。让手机和电脑接入同一局域网。
 2. 在另一个 PowerShell 7 窗口进入工作台目录，运行以下命令。将地址换成当前电脑在局域网中的 IPv4。首次运行需要命令行里的 OpenSSL，会生成该地址专用的 HTTPS 证书。
 
@@ -36,3 +38,33 @@ npm.cmd run dev
 4. 保持手机解锁、无障碍已启用，考古加和抖音都已登录。进入「待命接单」后，从网页选择设备并下发任务。切出待命页或遇到锁屏、登录提示时，在手机上处理后继续。
 
 HTTPS 入口只转发手机配对、领取任务、进度和结果。配对后每台设备使用自己的凭证。同一任务重复领取时沿用手机保存的批次，服务器按任务和记录编号核算已入库数。
+
+### 部署到服务器
+
+工作台可部署在现有 HTTPS 站点的 `/ai-selection/` 下。构建前将 `VITE_MOBILE_GATEWAY_URL` 设为服务器的 HTTPS 地址（只含主机和端口），使用私有证书时同时设置 `VITE_MOBILE_GATEWAY_FINGERPRINT`。
+
+```sh
+npm ci
+npm run build -- --base /ai-selection/
+npm run build:server
+```
+
+将 `dist/` 放到发布目录的 `web/ai-selection/`，将 `dist-server/production.js` 放到 `backend/production.mjs`。部署配置在 [scripts/deploy](scripts/deploy)，其中的 Nginx 片段沿用现有站点的 `/api/access` 登录校验。服务端设置 `WORKBENCH_WEB_ORIGIN` 为浏览器访问的 HTTPS 源，并将 `WORKBENCH_DOUYIN_DB` 指向发布目录之外的持久化路径。拼多多与其他沿用 PDD Parser 的接口需要独立部署对应后端。
+
+已连接本机的手机可在「工作台接单」中重新配对。服务器下发的新任务会把结果回传到服务器商品库。
+
+### 公网入口与本地存储
+
+服务器可以继续提供网页、登录和手机访问地址，通过 SSH 把工作台请求转给 Windows 电脑。此模式下，采集记录和原图写入电脑的 `data/douyin.sqlite`。安装在电脑上的 Chrome 会在新记录入库后自动尝试补齐轮播图。
+
+先构建后端。在工作台目录用已有的中继账号和密钥启动：
+
+```powershell
+npm run build:server
+.\scripts\start-local-relay.ps1 `
+  -SshTarget ai-selection-relay@your-server `
+  -IdentityFile (Join-Path $env:USERPROFILE '.ssh\id_ed25519_ai_selection_relay') `
+  -WebOrigin 'https://your-server:10443'
+```
+
+中继账号仅用于本机回环地址的反向转发。服务器的工作台代理应指向中继端口 `127.0.0.1:18311`，关闭请求和响应缓冲。电脑需保持开机，启动脚本在连接断开后会重连。手机可继续使用原公网地址。

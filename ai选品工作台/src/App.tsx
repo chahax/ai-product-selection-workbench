@@ -48,7 +48,7 @@ export default function App() {
       <ToastProvider>
         <ErrorBoundary>
           <ConfirmProvider>
-            <BrowserRouter>
+            <BrowserRouter basename={import.meta.env.BASE_URL}>
               <Suspense fallback={<PageSkeleton />}>
                 <Routes>
                   <Route element={<Layout />}>

@@ -7,12 +7,13 @@ import {
   useBatchPriceSingle,
 } from '../hooks/useApi';
 import type { SkuItem } from '../types';
+import { apiBase } from '../api/path';
 import SpecQuotes from '../components/SpecQuotes';
 import s from '../styles/modules/ProductDetail.module.css';
 
 function getImgUrl(path: string) {
   if (path.startsWith('http')) return path;
-  return `/api/ai-image/${path.replace(/^\/+/, '')}`;
+  return `${apiBase}/ai-image/${path.replace(/^\/+/, '')}`;
 }
 
 const overlayStyle: React.CSSProperties = {
@@ -513,7 +514,7 @@ export default function ProductDetail() {
                 <div className={s.imageGrid}>
                   {(aiImages || []).map(img => (
                     <div key={img.id} className={s.imageGridItem} style={{ width: 100, height: 100 }}>
-                      <img src={`/api/ai-image/${img.result_path}`} alt={img.prompt} />
+                      <img src={`${apiBase}/ai-image/${img.result_path}`} alt={img.prompt} />
                       <button className={s.imageDeleteBtn} style={{ background: 'var(--brand-blue)', color: 'var(--brand-surface)' }}
                         onClick={() => handleUseAiImage(img.result_path, 'main')}>+</button>
                     </div>

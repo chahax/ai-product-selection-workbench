@@ -6,10 +6,11 @@ import {
 import type { DuplicateGroup, GroupInfo, TagInfo } from '../types';
 import type { DouyinRecord } from '../types/douyin';
 import { useProducts } from './useApi';
+import { apiBase } from '../api/path';
 
 export type LibraryPlatform = 'pdd' | 'douyin';
 export type LibraryFilters = { min_price: string; max_price: string; min_sales: string; max_sales: string; shop: string };
-export const DOUYIN_LIBRARY_API = '/api/workbench/douyin';
+export const DOUYIN_LIBRARY_API = `${apiBase}/workbench/douyin`;
 
 type DouyinLibraryPage = { records: DouyinRecord[]; total: number; page: number; page_size: number };
 type BatchResult = { ok: boolean; updated: number; skipped: number };

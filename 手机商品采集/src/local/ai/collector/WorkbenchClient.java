@@ -7,6 +7,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -19,15 +20,19 @@ import java.util.function.Consumer;
 
 /** Polls only for an opted-in foreground phone and reports already assigned work after leaving the screen. */
 final class WorkbenchClient {
+    private static final int CATEGORY_SYNC_SECONDS = 20;
     private static WorkbenchClient instance;
     private final Context app;
     private final SharedPreferences state;
     private final ScheduledExecutorService worker = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService catalogWorker = Executors.newSingleThreadScheduledExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile WorkbenchConnection connection;
     private volatile boolean foreground;
     private volatile boolean standby;
     private volatile String message = "";
+    private WorkbenchConnection lastCatalogConnection;
+    private long lastCatalogSync;
 
     static synchronized WorkbenchClient get(Context context) {
         if (instance == null) instance = new WorkbenchClient(context.getApplicationContext());
@@ -44,6 +49,7 @@ final class WorkbenchClient {
             } catch (Exception error) { message = friendly(error); }
         }
         worker.scheduleWithFixedDelay(this::pollSafely, 0, 4, TimeUnit.SECONDS);
+        catalogWorker.scheduleWithFixedDelay(this::syncCategories, CATEGORY_SYNC_SECONDS, CATEGORY_SYNC_SECONDS, TimeUnit.SECONDS);
     }
 
     WorkbenchConnection connection() { return connection; }
@@ -54,6 +60,7 @@ final class WorkbenchClient {
     void setForeground(boolean value) {
         foreground = value;
         worker.execute(() -> pollSafely(!value));
+        if (value && paired()) catalogWorker.execute(this::syncCategories);
     }
 
     void setStandby(boolean value) {
@@ -99,10 +106,29 @@ final class WorkbenchClient {
                 connection = paired;
                 standby = false;
                 message = "";
+                if (foreground) catalogWorker.execute(this::syncCategories);
             } catch (Exception error) { failure = friendly(error); }
             String callback = failure;
             main.post(() -> result.accept(callback));
         });
+    }
+
+    private void syncCategories() {
+        WorkbenchConnection target = connection;
+        if (target == null || !foreground) return;
+        long now = SystemClock.elapsedRealtime();
+        if (lastCatalogConnection == target && now - lastCatalogSync < TimeUnit.SECONDS.toMillis(CATEGORY_SYNC_SECONDS)) return;
+        lastCatalogConnection = target;
+        lastCatalogSync = now;
+        try {
+            String version = KaoguCategories.version(app);
+            JSONObject request = new JSONObject();
+            if (!version.isEmpty()) request.put("version", version);
+            JSONObject response = target.post(WorkbenchConnection.CATEGORIES_PATH, request);
+            if (connection == target && foreground) KaoguCategories.update(app, response);
+        } catch (IOException | JSONException | RuntimeException ignored) {
+            // The saved catalog is still available offline and with earlier workbenches.
+        }
     }
 
     private boolean phoneReady() {
@@ -157,6 +183,7 @@ final class WorkbenchClient {
             if (!id.matches("[A-Za-z0-9_-]{1,120}")) throw new IOException("工作台返回了无效的任务编号");
             job = new JSONObject().put("id", id).put("period", assigned.optString("period"))
                     .put("limit", assigned.optInt("limit", 0)).put("category", assigned.optString("category"))
+                    .put("category_segments", assigned.optJSONArray("category_segments"))
                     .put("sequence", assigned.optLong("sequence", 0));
             saveJob(job);
         }
@@ -204,7 +231,7 @@ final class WorkbenchClient {
             }
             if (!error.isEmpty()) return new JSONObject().put("status", "failed").put("error", shorten(error));
             if (canStart(id) && CollectorService.canAcceptWorkbenchJob(app)) {
-                CollectorService.startWorkbenchJob(app, id, period, limit, category);
+                CollectorService.startWorkbenchJob(app, id, period, limit, category, job.optJSONArray("category_segments"));
             }
             return new JSONObject().put("status", "waiting_phone").put("stage", "等待手机待命并启动采集");
         }

@@ -1,0 +1,24 @@
+[Unit]
+Description=AI Selection Workbench API
+After=network.target
+
+[Service]
+Type=simple
+User=ai-selection
+Group=ai-selection
+WorkingDirectory=/srv/ai-selection/current
+Environment=WORKBENCH_DOUYIN_DB=/srv/ai-selection/data/douyin.sqlite
+Environment=WORKBENCH_BASE_PATH=/ai-selection/
+Environment=WORKBENCH_PORT=18310
+EnvironmentFile=/srv/ai-selection/server.env
+ExecStart=/opt/node-v22.23.2/bin/node /srv/ai-selection/current/backend/production.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -2,13 +2,15 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeE
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
 import { RequestError, isObject } from './douyin-library';
+import { allKaoguCategories, findKaoguCategory } from '../src/data/kaoguCategories';
+import { currentKaoguPath, initializeKaoguCatalog, kaoguCatalog, refreshKaoguCatalog } from './kaogu-catalog';
 
 const ADMIN_PATH = '/api/workbench/mobile';
 const PAIR_PATH = '/api/mobile/pair';
 const CLAIM_PATH = '/api/mobile/jobs/claim';
+const MOBILE_CATALOG_PATH = '/api/mobile/categories';
 const PROGRESS_PATH = /^\/api\/mobile\/jobs\/([\da-f-]{36})\/progress$/;
 const CANCEL_PATH = /^\/api\/workbench\/mobile\/jobs\/([\da-f-]{36})\/cancel$/;
-const CATEGORY = '3C数码家电-电器-个护健康电器';
 const PERIODS = new Set(['yesterday', '7d', '30d']);
 const PROGRESS_STATES = new Set(['waiting_phone', 'running', 'paused', 'uploading', 'completed', 'failed']);
 const TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled']);
@@ -24,6 +26,7 @@ type MobileJob = {
   period: string;
   limit: number;
   category: string;
+  category_segments: string | null;
   status: string;
   sequence: number;
   stage: string | null;
@@ -60,7 +63,9 @@ function requireAdmin(request: IncomingMessage) {
     let origin: URL;
     try { origin = new URL(request.headers.origin); }
     catch { throw new RequestError(403, '请求来源无效'); }
-    if (!['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname) || origin.host !== request.headers.host) {
+    const allowedOrigin = ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname)
+      || (origin.protocol === 'https:' && origin.origin === process.env.WORKBENCH_WEB_ORIGIN);
+    if (!allowedOrigin || origin.host !== request.headers.host) {
       throw new RequestError(403, '手机采集管理仅允许从工作台本机访问');
     }
   }
@@ -143,8 +148,10 @@ function ownedJob(db: DatabaseSync, deviceId: string, id: string) {
 }
 
 function publicJob(job: MobileJob) {
+  const categorySegments = job.category_segments ? JSON.parse(job.category_segments) as string[] : findKaoguCategory(job.category);
   return {
     id: job.id, device_id: job.device_id, period: job.period, limit: job.limit, category: job.category,
+    category_segments: categorySegments,
     status: job.status, sequence: job.sequence, stage: job.stage ?? undefined,
     current_title: job.current_title ?? undefined, total: job.total, complete: job.complete,
     partial: job.partial, failed: job.failed, invalid: job.invalid, received: job.received,
@@ -174,6 +181,7 @@ export function initializeMobileTasks(db: DatabaseSync) {
       period TEXT NOT NULL,
       "limit" INTEGER NOT NULL,
       category TEXT NOT NULL,
+      category_segments TEXT,
       status TEXT NOT NULL,
       sequence INTEGER NOT NULL DEFAULT 0,
       stage TEXT,
@@ -199,6 +207,10 @@ export function initializeMobileTasks(db: DatabaseSync) {
     );
     CREATE INDEX IF NOT EXISTS mobile_receipts_by_job ON mobile_job_receipts(job_id);
   `);
+  if (!db.prepare('PRAGMA table_info(mobile_jobs)').all().some(column => column.name === 'category_segments')) {
+    db.exec('ALTER TABLE mobile_jobs ADD COLUMN category_segments TEXT');
+  }
+  initializeKaoguCatalog(db);
 }
 
 function issuePairing(db: DatabaseSync) {
@@ -261,9 +273,9 @@ function createJob(db: DatabaseSync, raw: unknown) {
   if (!PERIODS.has(period)) throw new RequestError(400, '请选择昨日、7 日或 30 日');
   const limit = numberField(input.limit, 1, 200, '商品数量需为 1 至 200 件');
   const category = requiredText(input.category, 100, '请选择考古加类目');
-  const child = category.startsWith(`${CATEGORY}-`) ? category.slice(CATEGORY.length + 1).trim() : '';
-  if (category !== CATEGORY && (!child || child.includes('-'))) {
-    throw new RequestError(400, '请选择个护健康电器或它的子类目');
+  const categorySegments = category === allKaoguCategories ? [] : currentKaoguPath(db, category);
+  if (!categorySegments) {
+    throw new RequestError(400, '请选择考古加商品库中的有效类目');
   }
   const id = randomUUID();
   const timestamp = now();
@@ -274,9 +286,9 @@ function createJob(db: DatabaseSync, raw: unknown) {
     const queued = db.prepare("SELECT count(*) AS count FROM mobile_jobs WHERE device_id = ? AND status = 'queued'").get(deviceId);
     if (Number(queued?.count) >= 25) throw new RequestError(409, '这台手机的待采任务已满，请先处理已有任务');
     db.prepare(`
-      INSERT INTO mobile_jobs(id, device_id, period, "limit", category, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
-    `).run(id, deviceId, period, limit, child ? `${CATEGORY}-${child}` : CATEGORY, timestamp, timestamp);
+      INSERT INTO mobile_jobs(id, device_id, period, "limit", category, category_segments, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+    `).run(id, deviceId, period, limit, category, JSON.stringify(categorySegments), timestamp, timestamp);
     return { job: publicJob(findJob(db, id)!) };
   });
 }
@@ -394,8 +406,9 @@ export function acknowledgeMobileRecord(db: DatabaseSync, target: { id: string; 
 }
 
 export function isMobileTaskPath(path: string) {
-  return path === PAIR_PATH || path === CLAIM_PATH || PROGRESS_PATH.test(path)
+  return path === PAIR_PATH || path === CLAIM_PATH || path === MOBILE_CATALOG_PATH || PROGRESS_PATH.test(path)
     || path === `${ADMIN_PATH}/pairing` || path === `${ADMIN_PATH}/devices` || path === `${ADMIN_PATH}/jobs`
+    || path === `${ADMIN_PATH}/categories` || path === `${ADMIN_PATH}/categories/refresh`
     || CANCEL_PATH.test(path);
 }
 
@@ -405,6 +418,7 @@ export async function handleMobileTaskRequest(
   const read = () => readJson(request, 16 * 1024);
   if (path.startsWith(ADMIN_PATH)) {
     requireAdmin(request);
+    if (path === `${ADMIN_PATH}/categories` && request.method === 'GET') return send(response, kaoguCatalog(db));
     if (path === `${ADMIN_PATH}/devices` && request.method === 'GET') return send(response, listDevices(db));
     if (path === `${ADMIN_PATH}/jobs` && request.method === 'GET') {
       const jobs = db.prepare(`
@@ -414,6 +428,7 @@ export async function handleMobileTaskRequest(
       return send(response, { jobs: jobs.map(publicJob) });
     }
     if (request.method === 'POST') {
+      if (path === `${ADMIN_PATH}/categories/refresh`) { object(await read()); return send(response, await refreshKaoguCatalog(db)); }
       if (path === `${ADMIN_PATH}/pairing`) { object(await read()); return send(response, issuePairing(db)); }
       if (path === `${ADMIN_PATH}/jobs`) return send(response, createJob(db, await read()), 201);
       const cancel = CANCEL_PATH.exec(path);
@@ -423,6 +438,11 @@ export async function handleMobileTaskRequest(
     requireMobileTransport(request);
     if (path === PAIR_PATH) return send(response, pairDevice(db, await read()));
     const deviceId = authenticateMobile(db, request);
+    if (path === MOBILE_CATALOG_PATH) {
+      const input = object(await read());
+      const version = textField(input.version, 128) ?? undefined;
+      return send(response, kaoguCatalog(db, version));
+    }
     if (path === CLAIM_PATH) return send(response, claimJob(db, deviceId, await read()));
     const progress = PROGRESS_PATH.exec(path);
     if (progress) return send(response, reportProgress(db, deviceId, progress[1], await read()));

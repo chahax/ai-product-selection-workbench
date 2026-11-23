@@ -27,10 +27,6 @@ const JPEG = Buffer.from('ffd8ff', 'hex');
 
 type StoredImage = { kind: string; specIndex: number; imageIndex: number; mime: string; bytes: Buffer };
 
-function imageUrl(id: string, kind: string, spec: number, index: number) {
-  return `${API}/image?${new URLSearchParams({ id, kind, spec: String(spec), index: String(index) })}`;
-}
-
 function validateRecords(payload: unknown): DouyinRecord[] {
   const rows = isObject(payload) ? payload.records : payload;
   if (!Array.isArray(rows) || rows.length < 1 || rows.length > 5000) {
@@ -108,9 +104,12 @@ function validateMobile(payload: unknown) {
   return { record, images };
 }
 
-export function douyinDatabase(): Plugin {
+export function createDouyinMiddleware(databasePath: string, basePath = '') {
   let db: DatabaseSync | undefined;
-  let databasePath: string;
+
+  function imageUrl(id: string, kind: string, spec: number, index: number) {
+    return `${basePath}${API}/image?${new URLSearchParams({ id, kind, spec: String(spec), index: String(index) })}`;
+  }
   function database() {
     if (db) return db;
     mkdirSync(path.dirname(databasePath), { recursive: true });
@@ -253,7 +252,7 @@ export function douyinDatabase(): Plugin {
       let productId = '', productUrl = '';
       let images: Awaited<ReturnType<typeof fetchWebProductImages>>['images'] = [];
       try {
-        const fetched = await fetchWebProductImages(link, retry);
+        const fetched = await fetchWebProductImages(link, true);
         if (record.product_id && record.product_id !== fetched.productId) throw new Error('商品 ID 与入库记录不一致');
         productId = fetched.productId;
         productUrl = fetched.productUrl;
@@ -466,10 +465,16 @@ export function douyinDatabase(): Plugin {
     });
   }
 
+  return middleware;
+}
+
+export function douyinDatabase(): Plugin {
+  let middleware: ReturnType<typeof createDouyinMiddleware>;
   return {
     name: 'workbench-douyin-database',
     configResolved(config) {
-      databasePath = process.env.WORKBENCH_DOUYIN_DB || path.join(config.root, 'data', 'douyin.sqlite');
+      const databasePath = process.env.WORKBENCH_DOUYIN_DB || path.join(config.root, 'data', 'douyin.sqlite');
+      middleware = createDouyinMiddleware(databasePath, config.base.replace(/\/$/, ''));
     },
     configureServer(server) { server.middlewares.use(middleware); },
     configurePreviewServer(server) { server.middlewares.use(middleware); },

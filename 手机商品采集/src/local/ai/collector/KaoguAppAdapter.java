@@ -44,10 +44,12 @@ public final class KaoguAppAdapter {
         public String categoryPath = "";
         public Rect categoryControl;
         public Rect categoryFinish;
+        public Rect categoryReset;
         public Rect categorySearch;
         public Rect categorySearchField;
         public Map<String, Rect> categorySearchResults = new LinkedHashMap<>();
-        public Rect personalCareOption;
+        public List<CategoryChoice> categoryChoices = new ArrayList<>();
+        public Map<Integer, Rect> categoryScrolls = new LinkedHashMap<>();
         public Rect viewPrice;
         public Rect back;
         public List<Card> cards = new ArrayList<>();
@@ -64,10 +66,24 @@ public final class KaoguAppAdapter {
         public JSONObject metadata = new JSONObject();
     }
 
+    public static final class CategoryChoice {
+        final int level;
+        final String name;
+        final List<String> expandedParents;
+        final Rect bounds;
+
+        CategoryChoice(int level, String name, List<String> expandedParents, Rect bounds) {
+            this.level = level;
+            this.name = name;
+            this.expandedParents = expandedParents;
+            this.bounds = new Rect(bounds);
+        }
+    }
+
     private static final class Node {
         String text = "", description = "", id = "", className = "", packageName = "";
         Rect bounds = new Rect(), action;
-        boolean clickable, enabled, selected;
+        boolean clickable, enabled, selected, scrollable;
         Node parent;
         final List<Node> children = new ArrayList<>();
     }
@@ -109,20 +125,14 @@ public final class KaoguAppAdapter {
             if (id(node, "txv_shop") && "商品库".equals(node.text)) result.productLibraryTab = new Rect(node.bounds);
             if (id(node, "txv_select_content")) result.categoryPath = node.text;
             if (id(node, "btn_finish") && "完成".equals(node.text)) result.categoryFinish = new Rect(node.bounds);
-            if (id(node, "et_search") && node.bounds.top > nodes.get(0).bounds.height() / 3) {
+            if (id(node, "txv_reset") && "重置".equals(node.text)) result.categoryReset = new Rect(node.bounds);
+            if (id(node, "et_search") && (ancestor(node, "bottomPopupContainer") != null
+                    || node.bounds.top > nodes.get(0).bounds.height() / 3)) {
                 result.categorySearchField = new Rect(node.bounds);
             }
             if (id(node, "txv_search") && "搜索".equals(node.text)
-                    && node.bounds.top > nodes.get(0).bounds.height() / 3) result.categorySearch = new Rect(node.bounds);
-            if (id(node, "txv_search")) {
-                String prefix = "3C数码家电/电器/个护健康电器";
-                if (node.text.equals(prefix)) result.categorySearchResults.put(PERSONAL_CARE_PATH, new Rect(node.bounds));
-                else if (node.text.startsWith(prefix + "/")) {
-                    String child = node.text.substring(prefix.length() + 1);
-                    result.categorySearchResults.put(PERSONAL_CARE_PATH + "-" + child, new Rect(node.bounds));
-                }
-            }
-            if (id(node, "txv_name_item") && PERSONAL_CARE.equals(node.text)) result.personalCareOption = new Rect(node.bounds);
+                    && (ancestor(node, "bottomPopupContainer") != null
+                    || node.bounds.top > nodes.get(0).bounds.height() / 3)) result.categorySearch = new Rect(node.bounds);
             if (id(node, "txv_sort")) ordering = node.text;
             if (id(node, "rec_daren") && ancestor(node, "vp_shop_root") != null) productList = node;
             if (id(node, "btn_to_douyin") && node.text.equals("查看价格")) price = node;
@@ -136,6 +146,16 @@ public final class KaoguAppAdapter {
             if (result.intervention.isEmpty() && !warning.isEmpty()) result.intervention = warning;
         }
         result.dateMenu = result.dateOptions.keySet().containsAll(DATES);
+        if (result.categorySearchField != null) {
+            Set<String> seenResults = new HashSet<>();
+            for (Node node : nodes) {
+                if (!id(node, "txv_search") || node.text.isEmpty() || "搜索".equals(node.text)
+                        || !node.enabled || node.bounds.isEmpty()) continue;
+                if (seenResults.add(node.text)) result.categorySearchResults.put(node.text, new Rect(node.bounds));
+                else result.categorySearchResults.remove(node.text);
+            }
+        }
+        if (result.categoryFinish != null) readCategoryChoices(nodes, result);
         if (result.productPreview) return result;
         if (!result.dateMenu && result.categoryFinish == null && result.categorySearchField == null
                 && productList != null && result.dateControl != null) {
@@ -198,6 +218,36 @@ public final class KaoguAppAdapter {
         }
         readCoreData(nodes, result);
         return result;
+    }
+
+    private static void readCategoryChoices(List<Node> nodes, Snapshot result) {
+        for (Node node : nodes) {
+            if (!node.enabled || node.bounds.isEmpty() || ancestor(node, "lin_list") == null) continue;
+            if (node.scrollable) {
+                for (int column = 0; column < 3; column++) {
+                    if (id(node, "ns" + (column + 1))) result.categoryScrolls.put(column, new Rect(node.bounds));
+                }
+            }
+            if (node.text.isEmpty() || node.action == null) continue;
+            if (id(node, "txv_name") && ancestor(node, "rec_lv1") != null) {
+                result.categoryChoices.add(new CategoryChoice(0, node.text, new ArrayList<>(), node.bounds));
+            } else if (id(node, "txv_name") && ancestor(node, "rec_lv2") != null) {
+                result.categoryChoices.add(new CategoryChoice(1, node.text, new ArrayList<>(), node.bounds));
+            } else if (id(node, "txv_name_item") && ancestor(node, "rec_lv3") != null) {
+                List<String> parents = new ArrayList<>();
+                // Level four and deeper are separate rec_lv3 lists nested below their expanded row.
+                for (Node list = node.parent; list != null; list = list.parent) {
+                    if (!id(list, "rec_lv3") || list.parent == null || !id(list.parent, "lin_root")) continue;
+                    for (Node child : list.parent.children) {
+                        if (!id(child, "rel_root")) continue;
+                        Node header = descendant(child, "txv_name_item");
+                        if (header != null) parents.add(0, header.text);
+                        break;
+                    }
+                }
+                result.categoryChoices.add(new CategoryChoice(2 + parents.size(), node.text, parents, node.bounds));
+            }
+        }
     }
 
     private static void readCoreData(List<Node> nodes, Snapshot result) {
@@ -265,6 +315,7 @@ public final class KaoguAppAdapter {
         node.enabled = nativeNode.isEnabled();
         node.clickable = nativeNode.isClickable();
         node.selected = nativeNode.isSelected() || nativeNode.isChecked();
+        node.scrollable = nativeNode.isScrollable();
         nativeNode.getBoundsInScreen(node.bounds);
         node.action = node.clickable && node.enabled && !node.bounds.isEmpty() ? new Rect(node.bounds)
                 : inheritedAction == null ? null : new Rect(inheritedAction);
