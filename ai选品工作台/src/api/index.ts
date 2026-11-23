@@ -1,5 +1,10 @@
 import type { SelectionAiResult, SelectionCosts, SelectionInput, SelectionTask } from '../types/selection';
-import axios from 'axios';import type {  GoodsInfo, PaginatedResponse, DashboardStats,  ExportFormat, TagInfo, GroupInfo, AiImage, SettingsData, DuplicateGroup,  AiEditorProduct, AiHistoryItem, CompareItem, CopywritingResult,  ExportTemplate, MonitorItem, MonitorHistoryPoint,  ImportPreview, ImportResult, LogInfo, LogData, RiskCheckData, PriceAlert,} from '../types';const client = axios.create({ baseURL: '/api', timeout: 15000 });const aiClient = axios.create({ baseURL: '/api', timeout: 120000 });// Dashboard
+import axios from 'axios';
+import { apiBase } from './path';
+import type {  GoodsInfo, PaginatedResponse, DashboardStats,  ExportFormat, TagInfo, GroupInfo, AiImage, SettingsData, DuplicateGroup,  AiEditorProduct, AiHistoryItem, CompareItem, CopywritingResult,  ExportTemplate, MonitorItem, MonitorHistoryPoint,  ImportPreview, ImportResult, LogInfo, LogData, RiskCheckData, PriceAlert,} from '../types';
+
+const client = axios.create({ baseURL: apiBase, timeout: 15000 });
+const aiClient = axios.create({ baseURL: apiBase, timeout: 120000 });
 export async function fetchDashboard(): Promise<DashboardStats> {  const { data } = await client.get('/dashboard');  return data;}
 export async function fetchPriceDistribution() {  const { data } = await client.get('/dashboard/price-distribution');  return data;}
 export async function fetchTopSales() {  const { data } = await client.get('/dashboard/top-sales');  return data;}

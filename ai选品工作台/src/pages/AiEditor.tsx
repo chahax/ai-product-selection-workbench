@@ -6,11 +6,12 @@ import {
   useAiPresets, useSettings, useTags, useGroups, useRemoveBackground, useDeleteAiHistory, useAiSuggestPrompt,
 } from '../hooks/useApi';
 import { proxyImage } from '../api/index';
+import { apiBase } from '../api/path';
 import { useToast } from '../components/Toast';
 import type { AiEditorProduct, AiHistoryItem } from '../types';
 import s from '../styles/modules/AiEditor.module.css';
 
-const aiClient = axios.create({ baseURL: '/api', timeout: 120000 });
+const aiClient = axios.create({ baseURL: apiBase, timeout: 120000 });
 
 const PRESET_LABELS: Record<string, string> = {
   white_bg: '白底图',
@@ -109,7 +110,7 @@ const PLATFORM_SIZES = [
 
 function getImgUrl(path: string) {
   if (path.startsWith('http')) return path;
-  return `/api/ai-image/${path.replace(/^\/+/, '')}`;
+  return `${apiBase}/ai-image/${path.replace(/^\/+/, '')}`;
 }
 
 function getAllImages(p: AiEditorProduct): string[] {
@@ -725,7 +726,7 @@ export default function AiEditor() {
         const formData = new FormData();
         formData.append('file', blob, 'adjusted.png');
         try {
-          const resp = await fetch('/api/ai/upload-image', { method: 'POST', body: formData });
+          const resp = await fetch(`${apiBase}/ai/upload-image`, { method: 'POST', body: formData });
           const data = await resp.json();
           if (data.url) {
             setSourceImage({ url: data.url, goodsId: sourceImage?.goodsId });
@@ -760,7 +761,7 @@ export default function AiEditor() {
         const formData = new FormData();
         formData.append('file', blob, 'filtered.png');
         try {
-          const resp = await fetch('/api/ai/upload-image', { method: 'POST', body: formData });
+          const resp = await fetch(`${apiBase}/ai/upload-image`, { method: 'POST', body: formData });
           const data = await resp.json();
           if (data.url) {
             setSourceImage({ url: data.url, goodsId: sourceImage?.goodsId });
@@ -966,7 +967,7 @@ export default function AiEditor() {
         const formData = new FormData();
         formData.append('file', blob, 'watermarked.png');
         try {
-          const resp = await fetch('/api/ai/upload-image', { method: 'POST', body: formData });
+          const resp = await fetch(`${apiBase}/ai/upload-image`, { method: 'POST', body: formData });
           const data = await resp.json();
           if (data.url) {
             setSourceImage({ url: data.url, goodsId: sourceImage.goodsId });

@@ -73,9 +73,13 @@ try {
     $resourceApk = 'build\resources.ap_'
     $manifest = 'AndroidManifest.xml'
     $resources = 'res'
+    $categoryData = Join-Path (Split-Path -Parent $projectRoot) 'ai选品工作台\src\data\kaogu-categories.json'
+    $assets = Join-Path $buildRoot 'assets'
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'assets') -Destination $assets -Recurse
+    Copy-Item -LiteralPath $categoryData -Destination $assets
     Invoke-BuildTool $aapt2 @('compile', '--dir', $resources, '-o', $resourceZip)
     Invoke-BuildTool $aapt2 @('link', '-o', $resourceApk, '-I', $androidJar, '--manifest', $manifest,
-        '--java', 'build\generated', '--min-sdk-version', '30', '--target-sdk-version', '35', '-A', 'assets', $resourceZip)
+        '--java', 'build\generated', '--min-sdk-version', '30', '--target-sdk-version', '35', '-A', 'build\assets', $resourceZip)
 
     # Windows aapt2 can preserve backslashes in asset entry names. AssetManager
     # requires ZIP paths with forward slashes on the device.

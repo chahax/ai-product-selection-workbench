@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   createSelectionTask, fetchSelectionTasks, fetchSelectionTask, pauseSelectionTask, reviewSelectionTask, updateSelectionCost,
 } from '../api';
+import { apiBase } from '../api/path';
 import { useCaptureToggle, useSetCaptureToggle } from '../hooks/useApi';
 import type {
   SelectionAiReview, SelectionCandidate, SelectionCosts, SelectionInput, SelectionJob, SelectionStatus, SelectionTask,
@@ -50,7 +51,7 @@ function messageFor(error: unknown, fallback: string) {
 }
 
 function workerLink(taskId: string) {
-  return `/api/selection/tasks/${encodeURIComponent(taskId)}/worker?resume=1`;
+  return `${apiBase}/selection/tasks/${encodeURIComponent(taskId)}/worker?resume=1`;
 }
 
 function pddLink(source: string) {
@@ -381,7 +382,7 @@ export default function Selection() {
                 <button className="btn btn-outline btn-sm" type="button" disabled={aiReview.isPending} onClick={() => { setActionMessage(undefined); aiReview.mutate(task.id); }}>
                   {aiReview.isPending ? 'AI 复核中…' : 'AI 复核'}
                 </button>
-                <a className="btn btn-outline btn-sm" href={`/api/selection/tasks/${encodeURIComponent(task.id)}/export`} download>导出 CSV</a>
+                <a className="btn btn-outline btn-sm" href={`${apiBase}/selection/tasks/${encodeURIComponent(task.id)}/export`} download>导出 CSV</a>
               </>}
             </div>
           </div>

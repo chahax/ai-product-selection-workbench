@@ -1,21 +1,28 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import PddMobileCollector from './PddMobileCollector';
 import libraryStyles from '../styles/modules/Products.module.css';
-import { cancelMobileJob, createMobileJob, createMobilePairing, fetchMobileDevices, fetchMobileJobs } from '../api/mobileCollector';
+import {
+  cancelMobileJob, createMobileJob, createMobilePairing, fetchMobileCategories, fetchMobileDevices,
+  fetchMobileJobs, refreshMobileCategories,
+} from '../api/mobileCollector';
 import type { MobileDevice, MobileJob, MobileJobStatus, MobilePeriod } from '../api/mobileCollector';
 import { useConfirm } from '../components/Confirm';
 import { useToast } from '../components/Toast';
+import {
+  allKaoguCategories, bundledKaoguPaths, defaultKaoguCategory, findKaoguCategory,
+  indexKaoguCategories, kaoguCategories, searchKaoguCategories,
+} from '../data/kaoguCategories';
+import type { KaoguCategory } from '../data/kaoguCategories';
 import s from '../styles/modules/MobileCollector.module.css';
 
 const jobsKey = ['mobile-collector-jobs'];
+const categoriesKey = ['mobile-collector-categories'];
 const refreshInterval = 3000;
 const gatewayUrl = (import.meta.env.VITE_MOBILE_GATEWAY_URL as string | undefined)?.trim();
 const gatewayFingerprint = (import.meta.env.VITE_MOBILE_GATEWAY_FINGERPRINT as string | undefined)?.trim();
-const categoryPath = '3C数码家电-电器-个护健康电器';
-const categoryOptions = ['美容仪', '电动剃须刀/修须刀/修胡子造型器', '电吹风', '按摩椅/沙发'];
 const jobStatuses: Record<MobileJobStatus, string> = {
   queued: '排队中',
   claimed: '手机已领取',
@@ -35,6 +42,65 @@ const dateTime = new Intl.DateTimeFormat('zh-CN', {
 function Time({ value }: { value?: string | null }) {
   if (!value || !Number.isFinite(Date.parse(value))) return <>暂无</>;
   return <time dateTime={value}>{dateTime.format(new Date(value))}</time>;
+}
+
+type CategoryPaths = ReadonlyMap<string, readonly string[]>;
+
+function CategoryPicker({ categories, paths, path, onChange, children }: {
+  categories: KaoguCategory[];
+  paths: CategoryPaths;
+  path: string[] | null;
+  onChange: (path: string[]) => void;
+  children: ReactNode;
+}) {
+  const [query, setQuery] = useState('');
+  const matches = useMemo(() => searchKaoguCategories(paths, query), [paths, query]);
+  const levels = [categories];
+  for (const name of path ?? []) {
+    const children = levels[levels.length - 1].find(node => node.name === name)?.children;
+    if (!children?.length) break;
+    levels.push(children);
+  }
+  return (
+    <fieldset className={s.categoryPicker}>
+      <legend>考古加商品类目</legend>
+      {children}
+      <label>搜索类目
+        <input type="search" value={query} placeholder="输入类目名称，如电吹风"
+          onChange={event => setQuery(event.currentTarget.value)}
+          onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} />
+      </label>
+      {!!query.trim() && <label>匹配类目
+        <select value="" onChange={event => {
+          const match = paths.get(event.currentTarget.value);
+          if (match) { onChange([...match]); setQuery(''); }
+        }}>
+          <option value="">{matches.length ? '选择匹配的完整路径' : '没有匹配的类目'}</option>
+          {matches.map(([key, parts]) => <option key={key} value={key}>{parts.join(' › ')}</option>)}
+        </select>
+      </label>}
+      <div className={s.categoryLevels}>
+        {levels.map((options, level) => (
+          <label key={level}>{['一级', '二级', '三级', '四级'][level] ?? `${level + 1} 级`}类目
+            <select value={path?.[level] ?? (level === 0 && path ? allKaoguCategories : '')} onChange={event => {
+              const name = event.currentTarget.value;
+              const next = path?.slice(0, level) ?? [];
+              if (name && !(level === 0 && name === allKaoguCategories)) next.push(name);
+              onChange(next);
+            }}>
+              {level === 0 ? <>
+                <option value="" disabled>请选择一级类目</option>
+                <option value={allKaoguCategories}>{allKaoguCategories}</option>
+              </> : <option value="">全部子类目</option>}
+              {options.map(option => <option key={option.name} value={option.name}>{option.name}</option>)}
+            </select>
+          </label>
+        ))}
+      </div>
+      <p className={s.muted}>{path === null ? '原类目已不在当前列表，请重新选择。'
+        : `已选 ${path.length ? path.join(' › ') : allKaoguCategories}`}</p>
+    </fieldset>
+  );
 }
 
 function CopyField({ label, value, code = false }: { label: string; value: string; code?: boolean }) {
@@ -59,8 +125,8 @@ function CopyField({ label, value, code = false }: { label: string; value: strin
   );
 }
 
-function JobCard({ job, device, cancel, cancelling }: {
-  job: MobileJob; device?: MobileDevice; cancel: () => void; cancelling: boolean;
+function JobCard({ job, categoryTitle, device, cancel, cancelling }: {
+  job: MobileJob; categoryTitle: string; device?: MobileDevice; cancel: () => void; cancelling: boolean;
 }) {
   const processed = job.complete + job.partial + job.failed + job.invalid;
   const total = job.total || job.limit;
@@ -78,7 +144,7 @@ function JobCard({ job, device, cancel, cancelling }: {
     <article className={s.job}>
       <div className={s.jobHeading}>
         <div>
-          <h4>{job.category.replaceAll('-', ' › ')}</h4>
+          <h4>{categoryTitle}</h4>
           <p className={s.muted}>
             {periods[job.period]} · 计划 {job.limit} 件{device && ` · ${device.name}`} · 创建于 <Time value={job.created_at} />
           </p>
@@ -111,12 +177,16 @@ export default function MobileCollector() {
   const isPdd = params.get('platform') === 'pdd';
   return <div className={s.page}>
     <header className={`page-header ${s.heading}`}>
-      <h2>手机采集</h2>
+      <div>
+        <h2>手机采集</h2>
+        {!isPdd && <p className={s.muted}>创建抖音商品采集任务，查看手机进度和回传结果。</p>}
+      </div>
       <label className={libraryStyles.platformField}>平台
         <select value={isPdd ? 'pdd' : 'douyin'} onChange={event => setParams(event.target.value === 'pdd' ? { platform: 'pdd' } : {})}>
           <option value="douyin">抖音</option><option value="pdd">拼多多</option>
         </select>
       </label>
+      {!isPdd && <Link className="btn btn-outline" to="/products?platform=douyin">查看抖音商品库</Link>}
     </header>
     {isPdd ? <PddMobileCollector /> : <DouyinMobileCollector />}
   </div>;
@@ -127,7 +197,22 @@ function DouyinMobileCollector() {
   const { confirm } = useConfirm();
   const toast = useToast();
   const [deviceId, setDeviceId] = useState('');
-  const [category, setCategory] = useState('');
+  const [category, setCategory] = useState<string[] | null>(defaultKaoguCategory);
+  const categoriesQuery = useQuery({
+    queryKey: categoriesKey,
+    queryFn: ({ signal }) => fetchMobileCategories(signal),
+    staleTime: 60_000,
+  });
+  const refreshCategories = useMutation({
+    mutationFn: refreshMobileCategories,
+    onMutate: () => client.cancelQueries({ queryKey: categoriesKey }),
+    onSuccess: catalog => {
+      const paths = indexKaoguCategories(catalog.categories);
+      setCategory(current => current?.length && !paths.has(current.join('-')) ? null : current);
+      client.setQueryData(categoriesKey, catalog);
+      toast.success(catalog.changed === false ? '类目已是最新' : '类目已同步');
+    },
+  });
   const devicesQuery = useQuery({
     queryKey: ['mobile-collector-devices'],
     queryFn: ({ signal }) => fetchMobileDevices(signal),
@@ -161,16 +246,19 @@ function DouyinMobileCollector() {
   const devices = devicesQuery.data?.devices ?? [];
   const selected = devices.find(device => device.id === deviceId) ?? devices.find(device => device.ready) ?? devices[0];
   const jobs = jobsQuery.data?.jobs ?? [];
+  const catalog = categoriesQuery.data;
+  const categories = catalog?.categories ?? kaoguCategories;
+  const categoryPaths = useMemo(() => catalog ? indexKaoguCategories(catalog.categories) : bundledKaoguPaths, [catalog]);
+  const selectedCategory = category && (!category.length || categoryPaths.has(category.join('-'))) ? category : null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || devicesQuery.isError || createJob.isPending) return;
+    if (!selected || devicesQuery.isError || createJob.isPending || refreshCategories.isPending || selectedCategory === null) return;
     const data = new FormData(event.currentTarget);
     const period = data.get('period') as MobilePeriod;
     const limit = Number(data.get('limit'));
-    const child = category === 'custom' ? String(data.get('subcategory') ?? '').trim() : category;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200 || (category === 'custom' && !child)) return;
-    createJob.mutate({ device_id: selected.id, period, limit, category: child ? `${categoryPath}-${child}` : categoryPath });
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) return;
+    createJob.mutate({ device_id: selected.id, period, limit, category: selectedCategory.join('-') || allKaoguCategories });
   }
 
   async function confirmCancel(job: MobileJob) {
@@ -181,14 +269,7 @@ function DouyinMobileCollector() {
   }
 
   return (
-    <div className={s.page}>
-      <header className={`page-header ${s.heading}`}>
-        <div>
-          <p className={s.muted}>创建抖音商品采集任务，查看手机进度和回传结果。</p>
-        </div>
-        <Link className="btn btn-outline" to="/products?platform=douyin">查看抖音商品库</Link>
-      </header>
-
+    <>
       <div className={s.setupGrid}>
         <section className={`card card-body ${s.panel}`} aria-labelledby="mobile-devices-heading">
           <div className={s.panelHeading}>
@@ -235,16 +316,23 @@ function DouyinMobileCollector() {
                 {devices.map(device => <option key={device.id} value={device.id}>{device.name}{device.ready ? '' : '（待就绪）'}</option>)}
               </select>
             </label>
-            <label>考古加商品类目
-              <select value={category} onChange={event => setCategory(event.currentTarget.value)}>
-                <option value="">3C数码家电 › 电器 › 个护健康电器</option>
-                {categoryOptions.map(option => <option key={option} value={option}>个护健康电器 › {option}</option>)}
-                <option value="custom">其他个护健康电器子类目</option>
-              </select>
-            </label>
-            {category === 'custom' && <label>子类目名称
-              <input type="text" name="subcategory" placeholder="填写考古加里的完整名称" maxLength={100 - categoryPath.length - 1} required />
-            </label>}
+            <CategoryPicker categories={categories} paths={categoryPaths} path={selectedCategory} onChange={setCategory}>
+              <div className={s.categoryStatus}>
+                <p className={s.muted} role="status">
+                  {(catalog?.total ?? bundledKaoguPaths.size).toLocaleString('zh-CN')} 项
+                  {catalog?.updated_at ? <> · 同步于 <Time value={catalog.updated_at} /></> : ' · 内置类目'}
+                </p>
+                <button type="button" className="btn btn-outline btn-sm" disabled={refreshCategories.isPending}
+                  onClick={() => refreshCategories.mutate()}>
+                  {refreshCategories.isPending ? '正在更新…' : '更新类目'}
+                </button>
+              </div>
+              {refreshCategories.isError
+                ? <p className={s.error} role="alert">更新类目失败。{refreshCategories.error.message}</p>
+                : categoriesQuery.isError && <p className={s.error} role="alert">
+                  读取类目失败。{categoriesQuery.error.message} 当前使用{catalog ? '上次读取的' : '内置'}类目。
+                </p>}
+            </CategoryPicker>
             <div className={s.formRow}>
               <label>统计周期
                 <select name="period" defaultValue="30d">
@@ -261,7 +349,7 @@ function DouyinMobileCollector() {
                   : selected ? '任务会排队，手机待命后自动领取。' : '先配对手机，再下发采集任务。'}
               </p>
               <button className="btn btn-primary" type="submit"
-                disabled={!selected || devicesQuery.isError || createJob.isPending}>
+                disabled={!selected || devicesQuery.isError || createJob.isPending || refreshCategories.isPending || selectedCategory === null}>
                 {createJob.isPending ? '正在下发…' : '下发任务'}
               </button>
             </div>
@@ -284,11 +372,13 @@ function DouyinMobileCollector() {
         {jobsQuery.isSuccess && !jobs.length && <p className={s.muted}>还没有采集任务。</p>}
         {!!jobs.length && <div className={s.jobs}>
           {jobs.map(job => (
-            <JobCard key={job.id} job={job} device={devices.find(device => device.id === job.device_id)}
+            <JobCard key={job.id} job={job}
+              categoryTitle={(categoryPaths.get(job.category) ?? findKaoguCategory(job.category))?.join(' › ') ?? job.category}
+              device={devices.find(device => device.id === job.device_id)}
               cancel={() => void confirmCancel(job)} cancelling={cancelJob.isPending} />
           ))}
         </div>}
       </section>
-    </div>
+    </>
   );
 }

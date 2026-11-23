@@ -17,6 +17,7 @@ import android.util.AtomicFile;
 import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -91,7 +92,16 @@ public final class CollectorService extends AccessibilityService {
     private String targetPackage = MALL_PACKAGE;
     private String appDateRange = "30d";
     private String appCategoryPath = "";
+    private List<String> appCategorySegments = new ArrayList<>();
     private boolean appCategorySearchSubmitted;
+    private boolean appCategorySearchActive;
+    private boolean appCategoryFinishClicked;
+    private boolean appResumeAfterCategory;
+    private boolean appCategoryResetTried;
+    private String appCategorySeek = "";
+    private String appCategoryVisible = "";
+    private int appCategoryStill;
+    private boolean appCategoryForward;
     private int appLimit = 5;
     private String appNavigationStage = "app_list";
     private String appPreparation = "date";
@@ -123,7 +133,7 @@ public final class CollectorService extends AccessibilityService {
                 || KaoguAppNavigator.normalizeDateRange(dateRange).isEmpty() || limit < 1 || limit > 200) return false;
         service.handler.post(() -> {
             if (service.running && !service.paused || WorkbenchClient.get(service).hasJob()) return;
-            try { service.beginKaoguApp(dateRange, limit, category, ""); }
+            try { service.beginKaoguApp(dateRange, limit, category, null, ""); }
             catch (Exception error) { service.pause("考古加App任务尚未开始：" + readableError(error)); }
         });
         return true;
@@ -138,7 +148,8 @@ public final class CollectorService extends AccessibilityService {
                 && BatchStore.qrReceipt(context) == null;
     }
 
-    static void startWorkbenchJob(Context context, String jobId, String dateRange, int limit, String category) {
+    static void startWorkbenchJob(Context context, String jobId, String dateRange, int limit, String category,
+            JSONArray categorySegments) {
         CollectorService service = instance;
         if (service == null) return;
         service.handler.post(() -> {
@@ -146,7 +157,7 @@ public final class CollectorService extends AccessibilityService {
             if (service != instance || !client.canStart(jobId)) return;
             try {
                 if (!canAcceptWorkbenchJob(service)) return;
-                service.beginKaoguApp(dateRange, limit, category, jobId);
+                service.beginKaoguApp(dateRange, limit, category, categorySegments, jobId);
             } catch (Exception error) {
                 try {
                     if (jobId.equals(BatchStore.summary(service).optString("workbench_job_id"))) {
@@ -466,9 +477,11 @@ public final class CollectorService extends AccessibilityService {
         return !id.isEmpty() && id.equals(saved.optString("product_id"));
     }
 
-    private void beginKaoguApp(String dateRange, int limit, String category, String workbenchJobId) {
+    private void beginKaoguApp(String dateRange, int limit, String category, JSONArray categorySegments, String workbenchJobId) {
         boolean fromWorkbench = !workbenchJobId.isEmpty();
-        if (fromWorkbench) BatchStore.beginApp(this, dateRange, limit, category, workbenchJobId);
+        List<String> names = categorySegments(category, categorySegments);
+        JSONArray savedSegments = new JSONArray(names);
+        if (fromWorkbench) BatchStore.beginApp(this, dateRange, limit, category, savedSegments, workbenchJobId);
         if (!fromWorkbench && record != null && record.optJSONArray("skus") != null && record.optJSONArray("skus").length() > 0) {
             put(record, "status", "stopped");
             RecordStore.save(this, record);
@@ -487,9 +500,10 @@ public final class CollectorService extends AccessibilityService {
         if (!fromWorkbench) BatchStore.stop(this, "已切换为考古加App来源，旧进度即将归档");
         new AtomicFile(new File(getFilesDir(), "active_task.json")).delete();
         cleanBatchQr(() -> {
-            if (!fromWorkbench) BatchStore.beginApp(this, dateRange, limit, category, "");
+            if (!fromWorkbench) BatchStore.beginApp(this, dateRange, limit, category, savedSegments, "");
             appDateRange = dateRange;
             appCategoryPath = category;
+            appCategorySegments = names;
             appLimit = limit;
             appSourceMode = true;
             initializeAppPreparation();
@@ -502,6 +516,7 @@ public final class CollectorService extends AccessibilityService {
         JSONObject configuration = BatchStore.settings(this);
         appDateRange = configuration.optString("date_range", "30d");
         appCategoryPath = configuration.optString("category_path");
+        appCategorySegments = categorySegments(appCategoryPath, configuration.optJSONArray("category_segments"));
         appLimit = configuration.optInt("limit", 5);
         batchMode = appSourceMode = true;
         running = true;
@@ -530,8 +545,13 @@ public final class CollectorService extends AccessibilityService {
                     break;
                 }
             }
-            appRewind = true;
-            continueAppQueue();
+            if (appCategoryPath.isEmpty()) {
+                appRewind = true;
+                continueAppQueue();
+            } else {
+                initializeAppPreparation();
+                appResumeAfterCategory = true;
+            }
         }
         launchKaoguApp();
     }
@@ -539,6 +559,11 @@ public final class CollectorService extends AccessibilityService {
     private void initializeAppPreparation() {
         appPreparation = appCategoryPath.isEmpty() ? "date" : "category";
         appCategorySearchSubmitted = false;
+        appCategorySearchActive = false;
+        appCategoryFinishClicked = false;
+        appResumeAfterCategory = false;
+        appCategoryResetTried = false;
+        appCategorySeek = "";
         appNavigationStage = "app_list";
         appStageStarted = SystemClock.uptimeMillis();
         appStableFrames = appScrolls = appNoNew = 0;
@@ -628,6 +653,10 @@ public final class CollectorService extends AccessibilityService {
                 prepareAppList(root, observedPackage, source);
                 return;
             }
+            if (source != null && source.list && !appCategoryLabelMatches(source.category)) {
+                pause("商品库类目已变化，请选回「" + appCategoryDescription() + "」后继续本批次");
+                return;
+            }
             JSONObject item = BatchStore.current(this);
             if (item == null) { completeBatch(); return; }
             if ("verify_destination".equals(appNavigationStage)
@@ -645,10 +674,6 @@ public final class CollectorService extends AccessibilityService {
             }
             if (appRewind && source != null) {
                 if (openProductLibrary(source)) return;
-                if (source.list && !appCategoryPath.isEmpty() && !appCategoryName().equals(source.category)) {
-                    pause("商品库类目已变化，请选回「" + appCategoryName() + "」后继续本批次");
-                    return;
-                }
                 if (source.detail) {
                     performGlobalAction(GLOBAL_ACTION_BACK);
                     schedule(850);
@@ -774,39 +799,154 @@ public final class CollectorService extends AccessibilityService {
 
     private void prepareAppCategory(AccessibilityNodeInfo root, KaoguAppAdapter.Snapshot source) {
         if (!source.intervention.isEmpty()) { pause(source.intervention); return; }
-        if (source.list && appCategoryName().equals(source.category)) {
+        if (appCategorySegments.isEmpty() && !KaoguCategories.ALL.equals(appCategoryPath)) {
+            pause("无法识别任务指定的考古加类目「" + appCategoryPath + "」，请在工作台重新选择");
+            return;
+        }
+        if (source.list && appCategoryFinishClicked && appCategoryLabelMatches(source.category)) {
             appPreparation = "date";
             appStageStarted = SystemClock.uptimeMillis();
             schedule(850);
             return;
         }
-        if (SystemClock.uptimeMillis() - appStageStarted > 25000) {
-            pause("未确认考古加类目，请在商品库选择「" + appCategoryName() + "」后继续");
+        if (SystemClock.uptimeMillis() - appStageStarted > 60000) {
+            pause("未确认考古加类目，请在商品库选择「" + appCategoryDescription() + "」后继续");
             return;
         }
-        String message = "正在选择考古加类目「" + appCategoryName() + "」";
+        boolean modalMatches = source.categoryFinish != null && appModalCategoryMatches(source.categoryPath);
+        if (source.categorySearchField != null && (!appCategorySearchActive || modalMatches) && categoryKeyboardVisible()) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            schedule(750);
+            return;
+        }
+        String message = "正在选择考古加类目「" + appCategoryDescription() + "」";
         BatchStore.phase(this, message, null);
         publish("running", message);
         if (source.detail || source.dateMenu) {
             performGlobalAction(GLOBAL_ACTION_BACK);
         } else if (source.categoryFinish == null && source.categorySearchField == null) {
+            appCategoryFinishClicked = false;
             if (source.list && source.categoryControl != null) clickNavigation(source.categoryControl, KaoguAppAdapter.PACKAGE);
-        } else if (source.categoryFinish != null && appCategoryPath.equals(source.categoryPath)) {
+        } else if (modalMatches) {
             clickNavigation(source.categoryFinish, KaoguAppAdapter.PACKAGE);
-        } else if (KaoguAppAdapter.PERSONAL_CARE_PATH.equals(appCategoryPath) && source.personalCareOption != null
-                && source.categoryPath.startsWith("3C数码家电-电器-")) {
-            clickNavigation(source.personalCareOption, KaoguAppAdapter.PACKAGE);
-        } else if (source.categorySearchResults.containsKey(appCategoryPath)) {
-            clickNavigation(source.categorySearchResults.get(appCategoryPath), KaoguAppAdapter.PACKAGE);
-        } else if (!appCategorySearchSubmitted) {
-            searchAppCategory(root, source.categorySearchField, source.categorySearch);
+            appCategoryFinishClicked = true;
+        } else {
+            Rect result = source.categorySearchResults.get(String.join("/", appCategorySegments));
+            if (result != null) clickNavigation(result, KaoguAppAdapter.PACKAGE);
+            else if (!chooseAppCategoryFromColumns(source) && !appCategorySearchSubmitted && !appCategorySegments.isEmpty()) {
+                appCategorySearchActive = true;
+                searchAppCategory(root, source.categorySearchField, source.categorySearch);
+            }
         }
         schedule(750);
     }
 
+    private boolean categoryKeyboardVisible() {
+        boolean visible = false;
+        for (AccessibilityWindowInfo window : getWindows()) {
+            try {
+                if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) visible = true;
+            } finally {
+                window.recycle();
+            }
+        }
+        return visible;
+    }
+
+    private boolean chooseAppCategoryFromColumns(KaoguAppAdapter.Snapshot source) {
+        if (source.categoryChoices.isEmpty() || source.categoryFinish == null) return false;
+
+        int targetLevel = 0;
+        for (int length = appCategorySegments.size(); length > 0; length--) {
+            String prefix = String.join("-", appCategorySegments.subList(0, length));
+            if (source.categoryPath.equals(prefix) || source.categoryPath.startsWith(prefix + "-")) {
+                targetLevel = length;
+                break;
+            }
+        }
+        String target = targetLevel < appCategorySegments.size() ? appCategorySegments.get(targetLevel) : KaoguCategories.ALL;
+        List<String> parents = targetLevel > 2 ? appCategorySegments.subList(2, targetLevel) : new ArrayList<>();
+        StringBuilder visible = new StringBuilder();
+        Rect choice = null;
+        for (KaoguAppAdapter.CategoryChoice option : source.categoryChoices) {
+            if (option.level != targetLevel || !option.expandedParents.equals(parents)) continue;
+            visible.append(option.name).append('\n');
+            if (target.equals(option.name)) {
+                if (choice != null) return false;
+                choice = option.bounds;
+            }
+        }
+        if (choice != null) {
+            clickNavigation(choice, KaoguAppAdapter.PACKAGE);
+            return true;
+        }
+        if (targetLevel == appCategorySegments.size() && targetLevel >= 3
+                && source.categoryReset != null && !appCategoryResetTried) {
+            // Expanded fourth-level lists can lack an “不限” row. Reset only the category before choosing the parent.
+            appCategoryResetTried = true;
+            clickNavigation(source.categoryReset, KaoguAppAdapter.PACKAGE);
+            return true;
+        }
+
+        Rect column = source.categoryScrolls.get(Math.min(targetLevel, 2));
+        if (column == null || column.height() < 80) return false;
+        String seek = targetLevel + ":" + target + ":" + source.categoryPath;
+        if (!seek.equals(appCategorySeek)) {
+            appCategorySeek = seek;
+            appCategoryVisible = "";
+            appCategoryStill = 0;
+            appCategoryForward = false;
+        }
+        String signature = visible.toString();
+        appCategoryStill = signature.equals(appCategoryVisible) ? appCategoryStill + 1 : 0;
+        appCategoryVisible = signature;
+        if (appCategoryStill >= 2) {
+            if (appCategoryForward) return false;
+            appCategoryForward = true;
+            appCategoryStill = 0;
+        }
+        int top = column.top + column.height() / 5;
+        int bottom = column.bottom - column.height() / 5;
+        swipe(column.centerX(), appCategoryForward ? bottom : top, column.centerX(), appCategoryForward ? top : bottom);
+        return true;
+    }
+
+    private List<String> categorySegments(String category, JSONArray supplied) {
+        if (supplied != null && supplied.length() > 0 && supplied.length() <= 5) {
+            List<String> names = new ArrayList<>();
+            for (int i = 0; i < supplied.length(); i++) {
+                Object value = supplied.opt(i);
+                if (!(value instanceof String) || ((String) value).trim().isEmpty()) break;
+                names.add((String) value);
+            }
+            if (names.size() == supplied.length() && category.equals(String.join("-", names))) return names;
+        }
+        return KaoguCategories.path(this, category);
+    }
+
     private String appCategoryName() {
-        String prefix = KaoguAppAdapter.PERSONAL_CARE_PATH + "-";
-        return appCategoryPath.startsWith(prefix) ? appCategoryPath.substring(prefix.length()) : KaoguAppAdapter.PERSONAL_CARE;
+        return appCategorySegments.isEmpty() ? appCategoryPath : appCategorySegments.get(appCategorySegments.size() - 1);
+    }
+
+    private String appCategoryDescription() {
+        return appCategorySegments.isEmpty() ? appCategoryPath : String.join(" › ", appCategorySegments);
+    }
+
+    private boolean appCategoryLabelMatches(String label) {
+        if (appCategoryPath.isEmpty()) return true;
+        if (KaoguCategories.ALL.equals(appCategoryPath)) return "商品分类".equals(label) || KaoguCategories.ALL.equals(label);
+        return appCategoryName().equals(label);
+    }
+
+    private boolean appModalCategoryMatches(String displayedPath) {
+        return selectedCategoryPath(appCategoryPath, displayedPath);
+    }
+
+    private static boolean selectedCategoryPath(String expected, String displayed) {
+        while (!expected.equals(displayed) && displayed.endsWith("-不限")) {
+            displayed = displayed.substring(0, displayed.length() - "-不限".length());
+        }
+        return expected.equals(displayed);
     }
 
     private void searchAppCategory(AccessibilityNodeInfo root, Rect searchField, Rect searchButton) {
@@ -856,6 +996,12 @@ public final class CollectorService extends AccessibilityService {
                 appStageStarted = SystemClock.uptimeMillis();
             }
             if ("find_item".equals(appNavigationStage)) {
+                if (appResumeAfterCategory) {
+                    appResumeAfterCategory = false;
+                    appRewind = true;
+                    continueAppQueue();
+                    return;
+                }
                 appPreparation = "top";
                 appStableFrames = appScrolls = 0;
                 appListSignature = "";
@@ -868,7 +1014,7 @@ public final class CollectorService extends AccessibilityService {
         }
         if (!source.intervention.isEmpty()) { pause(source.intervention); return; }
         if (!source.list || source.dateMenu || !KaoguAppNavigator.normalizeDateRange(appDateRange).equals(source.selectedDate)
-                || (!appCategoryPath.isEmpty() && !appCategoryName().equals(source.category))) {
+                || !appCategoryLabelMatches(source.category)) {
             pause("读取名单时类目、日期或页面发生变化，请核对后继续");
             return;
         }

@@ -97,7 +97,8 @@ public final class BatchStore {
         }
     }
 
-    public static void beginApp(Context context, String dateRange, int limit, String category, String workbenchJobId) {
+    public static void beginApp(Context context, String dateRange, int limit, String category, JSONArray categorySegments,
+            String workbenchJobId) {
         synchronized (LOCK) {
             if (!("yesterday".equals(dateRange) || "7d".equals(dateRange) || "30d".equals(dateRange))) {
                 throw new IllegalArgumentException("请选择昨日、7日或30日");
@@ -120,6 +121,7 @@ public final class BatchStore {
             put(configuration, "source_mode", "kaogujia_app");
             put(configuration, "date_range", dateRange);
             put(configuration, "category_path", category);
+            put(configuration, "category_segments", categorySegments);
             put(configuration, "limit", limit);
             put(configuration, "capture_sku_images", false);
             put(configuration, "max_combinations", context.getSharedPreferences("collector_settings", Context.MODE_PRIVATE)

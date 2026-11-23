@@ -1,4 +1,7 @@
-const base = import.meta.env.BASE_URL + 'api/workbench/mobile';
+import { apiBase } from './path';
+import type { KaoguCategory } from '../data/kaoguCategories';
+
+const base = `${apiBase}/workbench/mobile`;
 
 export type MobilePeriod = 'yesterday' | '7d' | '30d';
 export type MobileJobStatus = 'queued' | 'claimed' | 'waiting_phone' | 'running' | 'paused'
@@ -37,6 +40,14 @@ export interface MobileJob extends MobileJobInput {
 
 type Pairing = { code: string; expires_at: string };
 
+export interface MobileCategoryCatalog {
+  version: string;
+  updated_at: string | null;
+  categories: KaoguCategory[];
+  total: number;
+  changed?: boolean;
+}
+
 async function readMobile<T>(path: string, options?: RequestInit): Promise<T> {
   return readCollector<T>(base + path, options);
 }
@@ -64,6 +75,14 @@ export function createMobilePairing() {
 
 export function fetchMobileJobs(signal: AbortSignal) {
   return readMobile<{ jobs: MobileJob[] }>('/jobs', { signal });
+}
+
+export function fetchMobileCategories(signal: AbortSignal) {
+  return readMobile<MobileCategoryCatalog>('/categories', { signal });
+}
+
+export function refreshMobileCategories() {
+  return readMobile<MobileCategoryCatalog>('/categories/refresh', post({}));
 }
 
 export function createMobileJob(input: MobileJobInput) {

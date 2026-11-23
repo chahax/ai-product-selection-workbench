@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:server": "vite build --ssr server/production.ts --outDir dist-server",
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "preview": "vite preview",

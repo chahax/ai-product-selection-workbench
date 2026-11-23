@@ -5,8 +5,9 @@ import type { DouyinRecord, DouyinSku, WebImageFetchResult } from '../types/douy
 import styles from '../styles/modules/DouyinLibrary.module.css';
 import { douyinSelectionLabel, eligibleDouyinSkus } from '../utils/douyinSelection';
 import { display, title, status, price, productLink, skuQuotes } from '../utils/douyinProduct';
+import { apiBase } from '../api/path';
 
-const API = '/api/workbench/douyin';
+const API = `${apiBase}/workbench/douyin`;
 const salesFields = ['商品销量', '直播销量', '视频销量', '商品卡销量'];
 type SelectionSettings = { ratio_percent: number; threshold_yuan: number };
 const selectionSettingsKey = ['douyin-selection-settings'];

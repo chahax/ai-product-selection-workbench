@@ -721,47 +721,37 @@ public final class MainActivity extends Activity {
     }
 
     private String categoryDisplay(String path) {
-        return path.isEmpty() ? "沿用商品库当前类目" : path.replace("-", " › ");
+        if (path.isEmpty()) return "沿用商品库当前类目";
+        java.util.List<String> names = KaoguCategories.path(this, path);
+        return names.isEmpty() ? path : String.join(" › ", names);
     }
 
     private void showKaoguCategories(java.util.function.Consumer<String> select) {
-        new AlertDialog.Builder(this).setTitle("选择考古加商品类目")
-                .setItems(new String[]{"3C数码家电", "沿用商品库当前类目"}, (dialog, option) -> {
-                    if (option == 1) select.accept("");
-                    else new AlertDialog.Builder(this).setTitle("3C数码家电")
-                            .setItems(new String[]{"电器"}, (second, ignored) -> new AlertDialog.Builder(this)
-                                    .setTitle("3C数码家电 › 电器")
-                                    .setItems(new String[]{KaoguAppAdapter.PERSONAL_CARE},
-                                            (third, index) -> showPersonalCareCategories(select))
-                                    .setNegativeButton("返回", (third, index) -> showKaoguCategories(select)).show())
-                            .setNegativeButton("返回", (second, ignored) -> showKaoguCategories(select)).show();
-                })
-                .setNegativeButton("取消", null).show();
+        showKaoguCategoryLevel(KaoguCategories.tree(this), "", select, null);
     }
 
-    private void showPersonalCareCategories(java.util.function.Consumer<String> select) {
-        String[] options = {"全部子类目", "美容仪", "电动剃须刀/修须刀/修胡子造型器", "电吹风", "按摩椅/沙发", "输入其他子类目名称"};
-        new AlertDialog.Builder(this).setTitle(KaoguAppAdapter.PERSONAL_CARE)
+    private void showKaoguCategoryLevel(java.util.List<KaoguCategories.Category> categories, String path,
+            java.util.function.Consumer<String> select, Runnable back) {
+        boolean root = path.isEmpty();
+        int builtin = root ? 2 : 1;
+        String[] options = new String[categories.size() + builtin];
+        options[0] = root ? KaoguCategories.ALL : "选择本级（全部子类目）";
+        if (root) options[1] = "沿用商品库当前类目";
+        for (int i = 0; i < categories.size(); i++) options[builtin + i] = categories.get(i).name;
+        AlertDialog.Builder picker = new AlertDialog.Builder(this)
+                .setTitle(root ? "选择考古加商品类目" : categoryDisplay(path))
                 .setItems(options, (dialog, option) -> {
-                    if (option == 0) select.accept(KaoguAppAdapter.PERSONAL_CARE_PATH);
-                    else if (option < options.length - 1) select.accept(KaoguAppAdapter.PERSONAL_CARE_PATH + "-" + options[option]);
-                    else {
-                        EditText name = input("输入考古加中的完整子类目名称", InputType.TYPE_CLASS_TEXT);
-                        AlertDialog custom = new AlertDialog.Builder(this).setTitle("指定子类目")
-                                .setView(name).setNegativeButton("返回", (back, which) -> showPersonalCareCategories(select))
-                                .setPositiveButton("使用", null).create();
-                        custom.setOnShowListener(event -> custom.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
-                            String value = name.getText().toString().trim();
-                            if (value.isEmpty()) name.setError("请输入子类目名称");
-                            else {
-                                select.accept(KaoguAppAdapter.PERSONAL_CARE_PATH + "-" + value);
-                                custom.dismiss();
-                            }
-                        }));
-                        custom.show();
-                    }
-                })
-                .setNegativeButton("返回", (dialog, option) -> showKaoguCategories(select)).show();
+                    if (option == 0) { select.accept(root ? KaoguCategories.ALL : path); return; }
+                    if (root && option == 1) { select.accept(""); return; }
+                    KaoguCategories.Category chosen = categories.get(option - builtin);
+                    String next = root ? chosen.name : path + "-" + chosen.name;
+                    if (chosen.children.isEmpty()) select.accept(next);
+                    else showKaoguCategoryLevel(chosen.children, next, select,
+                            () -> showKaoguCategoryLevel(categories, path, select, back));
+                });
+        if (back != null) picker.setNegativeButton("返回", (dialog, option) -> back.run());
+        else picker.setNegativeButton("取消", null);
+        picker.show();
     }
 
     private Integer positiveInteger(EditText field, String message) {

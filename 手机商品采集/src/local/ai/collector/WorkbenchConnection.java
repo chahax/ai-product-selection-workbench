@@ -24,6 +24,9 @@ import javax.net.ssl.X509TrustManager;
 
 /** Connection settings scoped to one paired workbench. */
 final class WorkbenchConnection {
+    static final String CATEGORIES_PATH = "/api/mobile/categories";
+    static final int MAX_CATEGORIES_RESPONSE_BYTES = 2 * 1024 * 1024;
+    private static final int MAX_RESPONSE_BYTES = 64 * 1024;
     final String address;
     final String fingerprint;
     final String token;
@@ -116,7 +119,9 @@ final class WorkbenchConnection {
             try (OutputStream output = connection.getOutputStream()) { output.write(request); }
             int status = connection.getResponseCode();
             try (InputStream input = status < 400 ? connection.getInputStream() : connection.getErrorStream()) {
-                JSONObject response = readJson(input);
+                int limit = CATEGORIES_PATH.equals(path) && status >= 200 && status < 300
+                        ? MAX_CATEGORIES_RESPONSE_BYTES : MAX_RESPONSE_BYTES;
+                JSONObject response = readJson(input, limit);
                 if (status < 200 || status >= 300) {
                     String reason = response.optString("error", "");
                     throw new IOException(reason.isEmpty() ? "工作台返回 HTTP " + status : reason);
@@ -128,13 +133,13 @@ final class WorkbenchConnection {
         }
     }
 
-    private static JSONObject readJson(InputStream input) throws IOException, JSONException {
+    private static JSONObject readJson(InputStream input, int maxBytes) throws IOException, JSONException {
         if (input == null) return new JSONObject();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         byte[] buffer = new byte[4096];
         int received;
         while ((received = input.read(buffer)) != -1) {
-            if (output.size() + received > 65536) throw new IOException("工作台响应过大");
+            if (output.size() + received > maxBytes) throw new IOException("工作台响应过大");
             output.write(buffer, 0, received);
         }
         return output.size() == 0 ? new JSONObject() : new JSONObject(new String(output.toByteArray(), StandardCharsets.UTF_8));

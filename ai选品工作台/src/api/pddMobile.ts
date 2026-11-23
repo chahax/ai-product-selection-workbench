@@ -1,6 +1,7 @@
 import { readCollector } from './mobileCollector';
+import { apiBase } from './path';
 
-const base = import.meta.env.BASE_URL + 'api/workbench/pdd-mobile';
+const base = `${apiBase}/workbench/pdd-mobile`;
 export const pddStatusKey = ['pdd-mobile', 'status'];
 export const pricingRules = ['火标规格最高价', '可见规格最高价', '单规格或火标', '仅火标', '人工核价'] as const;
 export interface Settings {

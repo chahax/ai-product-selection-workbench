@@ -4,8 +4,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { DouyinRecord } from '../types/douyin';
 import { eligibleDouyinSkus } from '../utils/douyinSelection';
 import styles from '../styles/modules/ProfitCalculator.module.css';
+import { apiBase } from '../api/path';
 
-const API = '/api/workbench/douyin';
+const API = `${apiBase}/workbench/douyin`;
 const PAGE_SIZE = 25;
 const money = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' });
 const number = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
